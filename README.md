@@ -99,6 +99,13 @@ The available environment variables are:
                        8086/80286 processors take a varying number of cycles
                        per instruction.
 
+- `EMU2_SERIAL_CONSOLE` Passes console I/O straight to the host terminal
+                       instead of the emulated PC video, so the terminal itself
+                       interprets the escape codes. Intended for CP/M-86 and
+                       other serial-console programs that drive an ANSI/VT
+                       terminal directly. Off by default; DOS and direct-video
+                       programs are unaffected.
+
 Simple Example
 --------------
 

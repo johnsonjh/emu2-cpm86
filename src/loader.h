@@ -6,6 +6,8 @@
 // EXE loader
 uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_size,
                     const char *progname);
+// Parse a command tail into two default FCBs (drive + 11-char name).
+void cmdline_to_fcb(const char *cmd_line, uint8_t *fcb1, uint8_t *fcb2);
 unsigned get_current_PSP(void);
 void set_current_PSP(uint16_t psp_seg);
 

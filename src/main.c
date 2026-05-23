@@ -1,6 +1,7 @@
 
 #define _GNU_SOURCE
 
+#include "cpm86.h"
 #include "dbg.h"
 #include "dos.h"
 #include "dosnames.h"
@@ -143,6 +144,8 @@ void bios_routine(unsigned inum)
         intr2a();
     else if(inum == 0x2f)
         intr2f();
+    else if(inum == 0xE0 || inum == 0xE1) // CP/M-86 BDOS entry
+        intr_cpm_bdos();
     else if(inum == 0x8)
         ; // Timer interrupt - nothing to do
     else if(inum == 0x9)

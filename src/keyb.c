@@ -12,11 +12,24 @@
 #include <sys/time.h>
 #include <termios.h>
 #include <unistd.h>
+#include <poll.h>
 
 #define MAX_KEYB_CALLS 10
 
 static int term_raw = 0;
 static int tty_fd = -1;
+
+// Read one byte from the tty, waiting at most `ms` for it.  Returns 1 and sets
+// *c on success, 0 on timeout / EOF.  Used for escape-sequence lookahead so a
+// bare ESC keypress isn't held waiting for a follow-up byte (real sequences
+// like cursor keys arrive as an immediate burst).
+static int read_key_ms(char *c, int ms)
+{
+    struct pollfd pfd = {tty_fd, POLLIN, 0};
+    if(poll(&pfd, 1, ms) <= 0)
+        return 0;
+    return read(tty_fd, c, 1) == 1;
+}
 static int queued_key = -1;
 static int waiting_key = 0;
 static int mod_state = 0;
@@ -234,7 +247,9 @@ static int get_esc_sequence(void)
     // ESC [ <modifiers> <letter>       Function Keys
     mod_state = 0;
     char ch = '\xFF';
-    if(read(tty_fd, &ch, 1) == 0)
+    // No follow-up byte arrives shortly => this was a bare ESC keypress, not
+    // the start of a cursor/function-key sequence.
+    if(!read_key_ms(&ch, 50))
         return 0x011B; // ESC
     if(ch != '[' && ch != 'O')
         return alt_char(ch);
@@ -243,7 +258,7 @@ static int get_esc_sequence(void)
     while(1)
     {
         char cn = '\xFF';
-        if(read(tty_fd, &cn, 1) == 0)
+        if(!read_key_ms(&cn, 50))
         {
             if(n1 == 0 && n2 == 0)
                 return alt_char(ch); // it is an ALT+'[' or ALT+'O'
@@ -411,6 +426,32 @@ static void init_keyboard(void)
         atexit(exit_keyboard);
     }
     set_raw_term(1);
+}
+
+// --- Raw serial-console input ---------------------------------------------
+// For EMU2_SERIAL_CONSOLE mode: deliver the terminal's bytes verbatim, with no
+// PC-keyboard translation, so a CP/M-86 program talking to an ANSI/VT terminal
+// receives a bare ESC, the terminal's own key escape sequences, and (crucially)
+// the terminal's replies to queries like the cursor-position report.
+
+// Returns 0xFF if a byte is ready to read, 0 otherwise.
+int serial_con_status(void)
+{
+    init_keyboard();
+    struct pollfd pfd = {tty_fd, POLLIN, 0};
+    return poll(&pfd, 1, 0) > 0 ? 0xFF : 0;
+}
+
+// Reads one raw byte (blocking); returns 0-255, or -1 on EOF.
+int serial_con_getc(void)
+{
+    init_keyboard();
+    unsigned char c;
+    ssize_t r;
+    do
+        r = read(tty_fd, &c, 1);
+    while(r < 0 && errno == EINTR);
+    return r == 1 ? c : -1;
 }
 
 // Disables keyboard support - will be enabled again if needed

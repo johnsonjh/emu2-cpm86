@@ -44,7 +44,7 @@ static int valid_fcb_char(int i)
 #define FCB_PARSE_FCB2_EXT  5
 #define FCB_PARSE_EXIT      6
 
-static void cmdline_to_fcb(const char *cmd_line, uint8_t *fcb1, uint8_t *fcb2)
+void cmdline_to_fcb(const char *cmd_line, uint8_t *fcb1, uint8_t *fcb2)
 {
     int i = 0;
     int state = FCB_PARSE_INIT;

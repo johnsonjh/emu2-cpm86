@@ -8,6 +8,7 @@ include platform.mk
 
 OBJS=\
  codepage.o\
+ cpm86.o\
  cpu.o\
  dbg.o\
  dis.o\

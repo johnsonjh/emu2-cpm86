@@ -1,5 +1,6 @@
 #include "dos.h"
 #include "codepage.h"
+#include "cpm86.h"
 #include "dbg.h"
 #include "dosnames.h"
 #include "emu.h"
@@ -805,9 +806,22 @@ static void dos_get_drive_info(uint8_t drive)
     cpuClrFlag(cpuFlag_CF);
 }
 
+// Serial-console mode (EMU2_SERIAL_CONSOLE): route console output straight to
+// the host terminal instead of the emulated PC video, so the terminal itself
+// interprets the escape codes.  Needed by CP/M-86 / serial programs (e.g. VEDIT
+// set for an ANSI/VT terminal).  Off by default: DOS and direct-video programs
+// keep using the PC video emulation unchanged.
+int dos_serial_console = 0;
+
 // Writes a character to standard output.
 static void dos_putchar(uint8_t ch, int fd)
 {
+    if(dos_serial_console && devinfo[fd] == 0x80D3)
+    {
+        putchar(ch);
+        fflush(stdout);
+        return;
+    }
     if(devinfo[fd] == 0x80D3 && video_active())
     {
         // Handle TAB character here:
@@ -1456,6 +1470,43 @@ void intr21(void)
         dos_show_fcb();
         cpuSetAL(dos_rw_record_fcb(dosDTA, 1, 0, 0));
         break;
+    case 0x23: // GET FILE SIZE USING FCB
+    {
+        // Get file by FCB filename, set the records (FCB[0x21..0x23]/24-bit)
+        // to ceil(size/record_size). AL=0 on success, and 0xFF if not found.
+        // FCB does not need to be open; the directory is searched by name.
+        dos_show_fcb();
+        int fcb_addr = get_fcb();
+        char *fname = dos_unix_path_fcb(fcb_addr, 0, append_path());
+        if(!fname)
+        {
+            debug(debug_dos, "\t(file not found)\n");
+            dos_error = 2;
+            cpuSetAL(0xFF);
+            break;
+        }
+        struct stat st;
+        if(0 != stat(fname, &st))
+        {
+            debug(debug_dos, "\tstat() failed: %s\n", strerror(errno));
+            free(fname);
+            dos_error = 2;
+            cpuSetAL(0xFF);
+            break;
+        }
+        free(fname);
+        unsigned rsize = get16(0x0E + fcb_addr);
+        if(!rsize)
+            rsize = 128;
+        unsigned long records =
+            ((unsigned long)st.st_size + rsize - 1) / rsize;
+        put16(fcb_addr + 0x21, records & 0xFFFF);
+        memory[fcb_addr + 0x23] = (records >> 16) & 0xFF;
+        debug(debug_dos, "\trsize=%u size=%lu -> records=%lu\n",
+              rsize, (unsigned long)st.st_size, records);
+        cpuSetAL(0x00);
+        break;
+    }
     case 0x24: // SET RANDOM RECORD NUMBER IN FCB
         dos_show_fcb();
         dos_seq_to_rand_fcb(get_fcb());
@@ -2587,6 +2638,12 @@ void init_dos(int argc, char **argv)
     else
         mcb_init(0x80, 0xA000);
 
+    // Serial-console mode: pass console output raw to the host terminal.
+    {
+        const char *sc = getenv(ENV_SERIALCON);
+        dos_serial_console = sc && sc[0] && sc[0] != '0';
+    }
+
     // Init SYSVARS
     dos_sysvars = get_static_memory(128, 0);
     put16(dos_sysvars + 22, 0x0080); // First MCB
@@ -2673,16 +2730,23 @@ void init_dos(int argc, char **argv)
             progname = buf;
     }
 
-    // Create main PSP
+    // Create main PSP. It owns the program's memory (so mem_alloc_segment
+    // works) and provides the file-handle table; CP/M-86 ignores its contents
+    // but reuses the ownership + I/O machinery.
     int psp_mcb = create_PSP(args, environ, p - environ + 1, progname);
     free(buf);
 
-    // Load program
+    // Load program: open it, then pick the CP/M-86 or the DOS loader.
     const char *name = argv[0];
     FILE *f = fopen(name, "rb");
     if(!f)
         print_error("can't open '%s': %s\n", name, strerror(errno));
-    if(!dos_load_exe(f, psp_mcb))
+    if(cpm86_detect(f, name))
+    {
+        if(!cpm86_load_cmd(f, args))
+            print_error("error loading CP/M-86 CMD file.\n");
+    }
+    else if(!dos_load_exe(f, psp_mcb))
         print_error("error loading EXE/COM file.\n");
     fclose(f);
 
