@@ -135,7 +135,12 @@ void bios_routine(unsigned inum)
                     memory[cpuGetAddress(cs, ip)], cs, ip);
     }
     else if(inum == 0x28)
-        intr28();
+    {
+        if(cpm86_active)
+            intr_cpm_int28(); // CP/M-86 keyboard-poll interface
+        else
+            intr28();
+    }
     else if(inum == 0x25)
         intr25();
     else if(inum == 0x29)

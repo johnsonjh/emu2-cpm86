@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <poll.h>
+#include <unistd.h>
 
 // ===========================================================================
 // CP/M-86 .CMD format
@@ -49,6 +51,9 @@ struct cpm_group
     uint16_t max;    // paragraphs to allocate (max)
     uint32_t file_off; // byte offset of this group's data in the file
 };
+
+// Set once a CP/M-86 program is loaded (see cpm86.h).
+int cpm86_active = 0;
 
 // Parsed program image (segments are emu2 paragraph addresses).
 static uint16_t cpm_code_seg, cpm_data_seg, cpm_base_seg;
@@ -324,6 +329,7 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
           "model=%s\n",
           ng, cpm_code_seg, code->length, cpm_data_seg, extra_seg, extra_par, sp_top,
           model_8080 ? "8080" : "small");
+    cpm86_active = 1;
     return 1;
 }
 
@@ -633,4 +639,21 @@ void intr_cpm_bdos(void)
         bdos_ret(0xFF); // 0xFF = error / not found for most file funcs
         break;
     }
+}
+
+// INT 28h keyboard interface for CP/M-86 programs.  ZORK (and other Infocom
+// interpreters) busy-poll INT 28h with DI=4 and read CL: CL!=0 means a key is
+// available, with the character deposited in the caller's DS:0x200 (the poll
+// loop then reads it from there).  Other DI values behave as a no-op idle.
+void intr_cpm_int28(void)
+{
+    if(cpuGetDI() != 4)
+        return;
+    // Non-consuming keyboard status: CL != 0 when input is waiting.  The program
+    // reads the actual line afterwards with BDOS 10 (DOS buffered input, which
+    // reads stdin), so poll stdin here -- using the keyboard layer instead would
+    // consume from a different stream and desync the line read.
+    struct pollfd pfd = {STDIN_FILENO, POLLIN, 0};
+    int ready = poll(&pfd, 1, 0) > 0;
+    cpuSetCX((cpuGetCX() & 0xFF00) | (ready ? 0xFF : 0x00));
 }

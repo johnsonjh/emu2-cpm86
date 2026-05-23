@@ -17,3 +17,10 @@ int cpm86_load_cmd(FILE *f, const char *cmdline);
 
 // BDOS entry point, invoked from bios_routine() on guest INT 0E0h.
 void intr_cpm_bdos(void);
+
+// Non-zero while a CP/M-86 program is loaded (vs a DOS program).
+extern int cpm86_active;
+
+// INT 28h handler for CP/M-86 programs: a keyboard-poll interface (DI=4) used by
+// some interpreters (e.g. ZORK).  Invoked from bios_routine() when cpm86_active.
+void intr_cpm_int28(void);
