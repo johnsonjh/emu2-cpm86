@@ -244,26 +244,36 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     }
 
     // --- Base page (256 bytes at DS:0) --------------------------------------
-    // Word 6 is the initial stack pointer (top of the data group); the rest is
-    // the group base/length table the runtime's sbrk consults.  Only word 6
-    // and the command tail are critical for startup; TODO: confirm the full
-    // layout against cpm86.exe.
+    // CP/M-86 lays out the base page as 6-byte group descriptors, one per group
+    // in the order code, data, extra, stack (then auxiliary groups):
+    //   +0  length of the group in BYTES (24-bit, 3 bytes)
+    //   +3  segment (paragraph) address of the group (word)
+    //   +5  flag byte (set for the 8080 memory model)
+    // Confirmed against the DRI System Guide layout and a base-page dump from
+    // cpm86.exe.  Runtimes rely on this: Turbo Pascal, for instance, reads the
+    // extra-group descriptor at 0x0C to compute SS (= extra_seg + extra_paras -
+    // 64K) and to place its heap at the extra segment.  The data-group length
+    // doubles as the "size of available memory" field.  (The previous
+    // {segment,length}-word layout fed programs garbage.)
     uint16_t sp_top = (data_par >= 0x1000) ? 0xFFF0 : (uint16_t)(data_par * 16 - 16);
     uint32_t bp = (uint32_t)cpm_base_seg * 16;
+    uint8_t mflag = model_8080 ? 0x01 : 0x00;
     memset(memory + bp, 0, 0x100);
-    put16(bp + 0x00, cpm_code_seg); // code group base paragraph
-    put16(bp + 0x02, code->length); // code group length (paragraphs)
-    put16(bp + 0x04, cpm_data_seg); // data group base paragraph
-    put16(bp + 0x06, sp_top);       // top of data group = initial SP
-    // Extra group (base + length in paragraphs); fall back to the data group
-    // when the program declared none, matching the previous behaviour.
-    put16(bp + 0x08, extra_seg ? extra_seg : cpm_data_seg);
-    put16(bp + 0x0A, extra_par);
-    if(stack_seg)
-    {
-        put16(bp + 0x0C, stack_seg); // stack group base
-        put16(bp + 0x0E, stack_par); // stack group length
-    }
+#define CPM_GDESC(o, len_bytes, seg)                                               \
+    do                                                                             \
+    {                                                                              \
+        uint32_t l_ = (len_bytes);                                                 \
+        memory[bp + (o) + 0] = l_ & 0xFF;                                          \
+        memory[bp + (o) + 1] = (l_ >> 8) & 0xFF;                                   \
+        memory[bp + (o) + 2] = (l_ >> 16) & 0xFF;                                  \
+        put16(bp + (o) + 3, (seg));                                                \
+        memory[bp + (o) + 5] = mflag;                                              \
+    } while(0)
+    CPM_GDESC(0x00, (uint32_t)code_par << 4, cpm_code_seg); // code group
+    CPM_GDESC(0x06, sp_top, cpm_data_seg);                  // data group (len = SP top)
+    CPM_GDESC(0x0C, (uint32_t)extra_par << 4, extra_seg);   // extra group (0 if none)
+    CPM_GDESC(0x12, (uint32_t)stack_par << 4, stack_seg);   // stack group (0 if none)
+#undef CPM_GDESC
 
     // Command tail at base page 0x80: <len><chars><CR>.  Like the CP/M CCP,
     // upper-case it and prefix the leading space (the delimiter that follows
