@@ -565,6 +565,11 @@ void intr_cpm_bdos(void)
             seg = mem_alloc_segment(avail, &a2);
             got = avail;
         }
+        // MC_MAX only *sizes* available memory; it must not keep it, or the
+        // program's follow-up MC_ALLOC (a common idiom, e.g. ZORK) finds nothing
+        // left.  Report the segment/length but free the block again.
+        if(seg && func == 53)
+            mem_free_segment(seg);
         if(seg)
         {
             put16(mcb + 0, seg);

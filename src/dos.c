@@ -334,6 +334,8 @@ static void dos_open_file_fcb(int create)
     const char *mode = create ? "w+b" : "r+b";
     debug(debug_dos, "\topen fcb '%s', '%s', %04x ", fname, mode, (unsigned)h);
     handles[h] = fopen(fname, mode);
+    if(!handles[h] && !create)
+        handles[h] = fopen(fname, "rb"); // write-protected file: open read-only
     if(!handles[h])
     {
         dos_error = 4;
