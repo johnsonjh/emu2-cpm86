@@ -1,8 +1,8 @@
-EMU2: A simple text-mode x86 + DOS emulator
--------------------------------------------
+EMU2: A simple text-mode x86 + DOS and CP/M-86 emulator
+-------------------------------------------------------
 
 This is a simple DOS emulator for the Linux text console, supporting basic DOS
-system calls and console I/O.
+and CP/M-86 system calls and console I/O.
 
 Installation
 ------------
@@ -99,12 +99,37 @@ The available environment variables are:
                        8086/80286 processors take a varying number of cycles
                        per instruction.
 
-- `EMU2_SERIAL_CONSOLE` Passes console I/O straight to the host terminal
-                       instead of the emulated PC video, so the terminal itself
-                       interprets the escape codes. Intended for CP/M-86 and
-                       other serial-console programs that drive an ANSI/VT
-                       terminal directly. Off by default; DOS and direct-video
-                       programs are unaffected.
+- `EMU2_CPM_DISK`      Block size of the fabricated CP/M-86 "disk" that presents
+                       each drive's host directory: `auto` (default), `1k`, `2k`,
+                       `4k`, `8k` or `16k`. The block size is the allocation
+                       granularity -- the smallest reportable file size (`1k` keeps
+                       small files exact; bigger blocks are needed for bigger
+                       disks). `auto` scans the directory and picks the smallest
+                       block size that holds it. The disk itself is sized to the
+                       directory's contents (see `EMU2_CPM_FREE`) and then capped at
+                       the guest-tool ceiling: about 8 MB for a standard CP/M 2.2
+                       program (its 16-bit record count and allocation bitmap top
+                       out there), or 512 MB with `EMU2_CPM_PLUS`. Files too big to
+                       fit aren't listed, as on a real CP/M disk. Per-drive override:
+                       `EMU2_CPM_DISK_C`, `EMU2_CPM_DISK_D`, ... take precedence over
+                       the global setting. Only affects native CP/M-86 programs.
+
+- `EMU2_CPM_FREE`      Target percentage of free space the `auto` disk sizing aims
+                       to leave (default `25`, clamped to 0..90).
+
+- `EMU2_CPM_PLUS`      When set, use CP/M 3 (Personal CP/M-86 / CP/M-86 Plus)
+                       limits: up to 2048 extents per file (32 MB files) and 512 MB
+                       disks, instead of the standard 512 extents (8 MB files, ~8 MB
+                       disks). Needs CP/M-3-aware tools to use the larger sizes.
+
+- `EMU2_VT52`          Native CP/M-86 programs drive the console as a DOS-PLUS
+                       (CP/M-86 4.1) terminal. emu2 interprets the console control
+                       sequences -- VT52 cursor/erase codes, DRI colour codes
+                       (`ESC b`/`ESC c`), and ANSI/VT100 codes -- and applies them
+                       to the emulated PC screen, or, for programs that never touch
+                       the BIOS video and so talk straight to the host terminal,
+                       translates them to the ANSI your terminal understands. On by
+                       default; set to `0`/`off`/`no` to disable. No effect on DOS.
 
 Simple Example
 --------------

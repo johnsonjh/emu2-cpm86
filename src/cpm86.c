@@ -3,6 +3,7 @@
 #include "cpm86.h"
 #include "dbg.h"
 #include "dos.h"
+#include "dosnames.h"
 #include "emu.h"
 #include "keyb.h"
 #include "loader.h"
@@ -13,6 +14,9 @@
 #include <time.h>
 #include <poll.h>
 #include <unistd.h>
+#include <dirent.h>
+#include <strings.h>
+#include <sys/stat.h>
 
 // ===========================================================================
 // CP/M-86 .CMD format
@@ -60,6 +64,187 @@ static uint16_t cpm_code_seg, cpm_data_seg, cpm_base_seg;
 // CP/M-86 DMA (disk transfer) address is segment:offset: BDOS 26 sets the
 // offset, BDOS 51 the segment.  Defaults to base page 0x80.
 static uint16_t cpm_dma_seg, cpm_dma_off;
+static void cpm_set_dta(void); // defined below; used by the loader
+
+// ---------------------------------------------------------------------------
+// Fabricated CP/M "disk" geometry.  Each drive (A..) maps to a host directory
+// (EMU2_DRIVE_<letter>, default "."); we present its files as a CP/M disk whose
+// geometry is computed PER DRIVE from that directory's contents.  The block size
+// sets the allocation granularity (smallest reportable file size) and, with the
+// 8-/16-bit block-number rule, the disk size; files bigger than one directory
+// entry are reported as multiple extents, up to the per-file extent limit.
+//   EMU2_CPM_DISK[_<letter>] = auto (default) | 1k | 2k | 4k | 8k | 16k
+//   EMU2_CPM_FREE            = target free-space percent for auto sizing (def 25)
+//   EMU2_CPM_PLUS            = CP/M 3 limits: 2048 extents/32MB files, 512MB disks
+// The disk is also capped at the guest-tool ceiling: a standard CP/M 2.2 program
+// (16-bit record counts) tops out at ~8MB; CP/M-3 (PLUS) reaches 512MB.
+// ---------------------------------------------------------------------------
+static unsigned cpm_blk_size = 2048; // CURRENT drive's geometry (set by cpm_select_disk)
+static unsigned cpm_bsh = 4, cpm_blm = 15, cpm_exm = 0;
+static unsigned cpm_dsm = 4095, cpm_dir_blocks = 0, cpm_drm = 1023;
+static unsigned cpm_max_ext = 512;   // max extents per file (512 std, 2048 CP/M3)
+static uint32_t cpm_av_addr = 0;     // scratch for the BDOS 27 allocation vector
+static int cpm_cur_drive = -1;       // currently selected drive (0=A)
+// Cached per-drive geometry (computed once per drive from its directory):
+static struct cpm_geo
+{
+    unsigned blk_size, bsh, blm, exm, dsm, dir_blocks, drm;
+    char ready;
+} cpm_geo[26];
+// Multi-extent emission state (a large file spans several directory entries,
+// returned one per Search-Next call without advancing the host scan):
+static unsigned cpm_blk_next;         // next free block to hand out (this scan)
+static unsigned long cpm_ext_left;    // blocks of the current file not yet emitted
+static unsigned cpm_ext_entry;        // physical directory-entry index for that file
+static unsigned long cpm_ext_records; // total 128-byte records of the current file
+static uint8_t cpm_ext_name[12];      // user# + 8.3 name (+ attr bits) of that file
+
+// A file is representable (shown, sized for, counted) only if it fits the per-file
+// extent limit -- 512 extents (8MB) normally, 2048 (32MB) with EMU2_CPM_PLUS.
+// cpm_search skips bigger files, so the sizing/free-space scans skip them too.
+static int cpm_representable(unsigned long size)
+{
+    return (size + 16383) / 16384 <= cpm_max_ext;
+}
+
+// Sum either the bytes (blk==0) or the rounded block count (blk>0) of the
+// representable regular files in host directory `path`.
+static unsigned long cpm_scan_dir(const char *path, unsigned blk)
+{
+    unsigned long total = 0;
+    DIR *d = opendir(path);
+    if(d)
+    {
+        struct dirent *e;
+        char full[4096];
+        while((e = readdir(d)))
+        {
+            struct stat st;
+            snprintf(full, sizeof full, "%s/%s", path, e->d_name);
+            if(0 == stat(full, &st) && S_ISREG(st.st_mode) &&
+               cpm_representable((unsigned long)st.st_size))
+                total += blk ? ((unsigned long)st.st_size + blk - 1) / blk
+                             : (unsigned long)st.st_size;
+        }
+        closedir(d);
+    }
+    return total;
+}
+
+// Compute and cache the geometry for `drive` from its host directory + env vars.
+static void cpm_compute_geo(int drive)
+{
+    int plus = getenv("EMU2_CPM_PLUS") != 0;
+    cpm_max_ext = plus ? 2048 : 512;
+    const char *path = get_base_path(drive);
+    // EMU2_CPM_DISK_<letter> overrides the global EMU2_CPM_DISK.
+    char key[20];
+    snprintf(key, sizeof key, "EMU2_CPM_DISK_%c", 'A' + drive);
+    const char *mode = getenv(key);
+    if(!mode)
+        mode = getenv("EMU2_CPM_DISK");
+    const char *fenv = getenv("EMU2_CPM_FREE");
+    unsigned free_pct = fenv ? (unsigned)strtoul(fenv, 0, 0) : 25;
+    if(free_pct > 90)
+        free_pct = 90;
+
+    // Guest-tool disk ceiling: ~8MB for standard CP/M 2.2, 512MB for CP/M-3.
+    unsigned long disk_max = plus ? 512UL * 1024 * 1024 : 65535UL * 128;
+    unsigned long total = cpm_scan_dir(path, 0);
+    unsigned long need = total * 100 / (100 - free_pct); // leave free_pct% free
+    if(need < 64UL * 1024)
+        need = 64UL * 1024;
+    if(need > disk_max)
+        need = disk_max;
+
+    unsigned blk;
+    if(mode && strcasecmp(mode, "auto"))
+    {
+        blk = (unsigned)strtoul(mode, 0, 0) * 1024; // "1k".."16k" -> bytes
+        if(blk != 1024 && blk != 2048 && blk != 4096 && blk != 8192 && blk != 16384)
+            blk = 2048;
+    }
+    else if(need <= 256UL * 1024)
+        blk = 1024; // 1K is 8-bit -> 256K max
+    else if(!plus)
+        // Standard: keep the disk within 2048 blocks (the CP/M 2.2 tool limit), so
+        // 2K up to 4MB, 4K up to 8MB (the standard 8MB ceiling).
+        blk = (need <= 2048UL * 2048) ? 2048 : 4096;
+    else if(need <= 65535UL * 2048)
+        blk = 2048; // CP/M-3: 16-bit block numbers scale to 65535 blocks
+    else if(need <= 65535UL * 4096)
+        blk = 4096;
+    else if(need <= 65535UL * 8192)
+        blk = 8192;
+    else
+        blk = 16384;
+
+    // Size in *blocks*: files round up to whole blocks and the directory takes
+    // space, so size from rounded block counts (+16-block dir reserve) for free%.
+    unsigned long fblocks = cpm_scan_dir(path, blk);
+    unsigned long dblocks = (fblocks + 16) * 100 / (100 - free_pct);
+    unsigned long blocks = (need + blk - 1) / blk;
+    if(dblocks > blocks)
+        blocks = dblocks;
+    // Caps.  1K is 8-bit -> 256 blocks.  A standard CP/M 2.2 tool (e.g. STAT) has
+    // a fixed ~2048-block allocation bitmap and a 16-bit record count, so cap the
+    // disk at 2048 blocks AND 65535 records; CP/M-3 (PLUS) only needs DSM<=65534.
+    unsigned long max_blocks = (blk == 1024) ? 256 : (plus ? 65535 : 2048);
+    if(!plus && max_blocks > 65535UL * 128 / blk)
+        max_blocks = 65535UL * 128 / blk;
+    if(blocks > max_blocks)
+        blocks = max_blocks;
+    if(blocks < 8)
+        blocks = 8;
+
+    struct cpm_geo *g = &cpm_geo[drive];
+    g->blk_size = blk;
+    g->bsh = 0;
+    for(unsigned t = blk / 128; t > 1; t >>= 1)
+        g->bsh++;
+    g->blm = blk / 128 - 1;
+    g->dsm = (unsigned)(blocks - 1);
+    unsigned bpe = (g->dsm >= 256) ? 8 : 16;
+    unsigned lpe = (bpe * blk) / 16384;
+    g->exm = (lpe < 1 ? 1 : lpe) - 1;
+    // Directory entries scale with the disk, but AL0/AL1 marks at most 16 blocks.
+    unsigned entries = (unsigned)(blocks / 2);
+    unsigned max_entries = blk / 2;
+    if(entries > max_entries)
+        entries = max_entries;
+    if(entries > 2048)
+        entries = 2048;
+    if(entries < 64)
+        entries = 64;
+    g->drm = entries - 1;
+    g->dir_blocks = (unsigned)(((unsigned long)entries * 32 + blk - 1) / blk);
+    if(g->dir_blocks < 1)
+        g->dir_blocks = 1;
+    g->ready = 1;
+    debug(debug_dos,
+          "CP/M disk %c: '%s' blk=%u DSM=%u DRM=%u dir_blks=%u max_ext=%u\n",
+          'A' + drive, path, g->blk_size, g->dsm, g->drm, g->dir_blocks, cpm_max_ext);
+}
+
+// Make `drive` the current disk, computing its geometry on first use.
+static void cpm_select_disk(int drive)
+{
+    if(drive < 0 || drive >= 26)
+        drive = 0;
+    if(!cpm_av_addr)
+        cpm_av_addr = get_static_memory(8192 + 16, 16);
+    if(!cpm_geo[drive].ready)
+        cpm_compute_geo(drive);
+    struct cpm_geo *g = &cpm_geo[drive];
+    cpm_blk_size = g->blk_size;
+    cpm_bsh = g->bsh;
+    cpm_blm = g->blm;
+    cpm_exm = g->exm;
+    cpm_dsm = g->dsm;
+    cpm_dir_blocks = g->dir_blocks;
+    cpm_drm = g->drm;
+    cpm_cur_drive = drive;
+}
 
 // ---------------------------------------------------------------------------
 // Header parsing
@@ -296,9 +481,13 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     tail[tl] = 0;
     memory[bp + 0x80] = tl;
     memcpy(memory + bp + 0x81, tail, tl);
-    memory[bp + 0x81 + tl] = 0x0d;
+    // CP/M terminates the command tail with a NUL.  (A CR here is read as a stray
+    // operand byte by command parsers that scan for a <=1 terminator, e.g. STAT.)
+    memory[bp + 0x81 + tl] = 0x00;
     cpm_dma_seg = cpm_base_seg; // default DMA = base page 0x80
     cpm_dma_off = 0x80;
+    cpm_set_dta(); // sync emu2's DTA to the default, so programs that read the
+                   // directory without setting the DMA (e.g. STAT) work too
 
     // Parse the command tail's first/second filename args into the default
     // FCBs at base page 0x5C/0x6C, as the CCP does (programs read them there).
@@ -389,53 +578,145 @@ static void cpm_set_dta(void)
     cpuSetDX(sdx);
 }
 
-// CP/M Search First/Next (BDOS 17/18).  emu2's DOS find writes a DOS FCB to the
-// DTA (drive at +0, name at +1..11, attr/time/size from +0x0C); CP/M programs
-// expect a directory entry (user# at +0, name at +1..11, EX/S1/S2/RC at +12..15,
-// allocation map at +16..31) at DTA + dir_code*32.  The name position already
-// matches, so reformat byte 0 and 12..31 and return directory code 0 (the entry
-// sits at DTA+0), or 0xFF at end of directory.
-static unsigned cpm_search(unsigned ah)
+// Write one CP/M directory entry (one extent of the current file) to the DTA:
+// user#+name+attrs, the EX/S2/RC for this extent, and its slice of the block map
+// (8-bit numbers if the disk has <=256 blocks, else 16-bit).  Advances the block
+// allocator and the extent counter.
+static void cpm_emit_extent(uint32_t dta)
 {
-    unsigned r = bdos_via_dos(ah);
-    if(r == 0xFF)
-        return 0xFF;
-    uint32_t dta = (uint32_t)cpm_dma_seg * 16 + cpm_dma_off;
-    debug(debug_dos, "CP/M search(%02x): '%.11s' -> dir code 0\n", ah,
-          (char *)(memory + dta + 1));
-    unsigned long sz = get32(dta + 0x1D); // file size DOS wrote (read before overwrite)
-    unsigned long recs = (sz + 127) / 128;
-    memory[dta + 0x00] = 0;                            // user number (was DOS drive)
-    memory[dta + 0x0C] = 0;                            // EX (extent)
-    memory[dta + 0x0D] = 0;                            // S1
-    memory[dta + 0x0E] = 0;                            // S2
-    memory[dta + 0x0F] = recs > 128 ? 128 : recs;      // RC (record count)
+    unsigned bpe = (cpm_dsm >= 256) ? 8 : 16; // block pointers per directory entry
+    unsigned lext_per_entry = cpm_exm + 1;    // 16K logical extents per entry
+    unsigned long total_lext = (cpm_ext_records + 127) / 128;
+
+    memcpy(memory + dta, cpm_ext_name, 12); // user# + name (+ attribute high-bits)
+    unsigned ex = 0, s2 = 0, rc = 0;
+    if(total_lext)
+    {
+        unsigned long last = (unsigned long)(cpm_ext_entry + 1) * lext_per_entry;
+        if(last > total_lext)
+            last = total_lext;
+        unsigned long extnum = last - 1; // highest 16K extent in this entry
+        rc = (extnum == total_lext - 1) ? (unsigned)(cpm_ext_records - extnum * 128) : 128;
+        ex = extnum & 0x1F;
+        s2 = (extnum >> 5) & 0x3F;
+    }
+    memory[dta + 0x0C] = ex; // EX
+    memory[dta + 0x0D] = 0;  // S1
+    memory[dta + 0x0E] = s2; // S2
+    memory[dta + 0x0F] = rc; // RC (records in the last 16K extent; 128 = full)
+
     for(int i = 0x10; i < 0x20; i++)
         memory[dta + i] = 0;
-    memory[dta + 0x10] = 1;   // a non-zero allocation block, so the entry is "used"
-    memory[dta + 0x20] = 0xE5; // slots 1-3 of the 128-byte directory record: empty
+    unsigned nb = (cpm_ext_left < bpe) ? (unsigned)cpm_ext_left : bpe;
+    for(unsigned i = 0; i < nb; i++)
+    {
+        if(cpm_dsm >= 256)
+            put16(dta + 0x10 + i * 2, cpm_blk_next);
+        else
+            memory[dta + 0x10 + i] = (uint8_t)cpm_blk_next;
+        cpm_blk_next++;
+    }
+    cpm_ext_left -= nb;
+    cpm_ext_entry++;
+
+    memory[dta + 0x20] = 0xE5; // slots 1-3 of the 128-byte record are empty
     memory[dta + 0x40] = 0xE5;
     memory[dta + 0x60] = 0xE5;
-    return 0;               // directory code 0 -> matched entry is at DTA+0
 }
 
-extern int dos_serial_console;
+// CP/M Search First/Next (BDOS 17/18).  emu2's DOS find writes a DOS FCB to the
+// DTA (drive at +0, name at +1..11, attr/size from +0x0C/+0x1D); CP/M programs
+// expect a directory entry (user# at +0, name at +1..11, EX/S1/S2/RC at +12..15,
+// allocation map at +16..31).  We reformat that into one or more extents and
+// return directory code 0 (entry at DTA+0), or 0xFF at end of directory.
+static unsigned cpm_search(unsigned ah)
+{
+    uint8_t fcb_name_save[11], fcb_drive_save = 0;
+    uint32_t fcb_addr = 0;
+    int restore_name = 0;
+    uint32_t dta = (uint32_t)cpm_dma_seg * 16 + cpm_dma_off;
 
-// Console status (0xFF if a char is ready) and blocking console input.  In
-// serial-console mode these read the terminal RAW (no PC-keyboard translation)
-// so ANSI programs get bare ESC, key escape sequences and query replies intact;
-// otherwise they use emu2's INT 21h keyboard handlers.
+    if(ah == 0x11)
+    {
+        fcb_addr = cpuGetAddrDS(cpuGetDX());
+        // Select the FCB's drive (byte 0: 0/wildcard = current, 1..16 = A..P) so
+        // the block geometry matches the directory the DOS find will read.
+        unsigned fdrv = memory[fcb_addr] & 0x1F;
+        cpm_select_disk((fdrv >= 1 && fdrv <= 16) ? (int)fdrv - 1
+                                                  : dos_get_default_drive());
+        cpm_blk_next = cpm_dir_blocks; // file data starts after the directory blocks
+        cpm_ext_left = 0;              // no file in progress
+        // A '?' (0x3F) drive byte is CP/M's "match every entry" wildcard: the BDOS
+        // ignores the FCB name, so programs (STAT) stash data there (the user# at
+        // FCB+4).  emu2's DOS find matches by name and treats 0x3F as an invalid
+        // drive (-> cwd), so force an all-'?' name AND a 0 (default) drive byte so
+        // the find reads the currently-selected drive; RESTORE both afterward.
+        if(memory[fcb_addr] == 0x3F)
+        {
+            memcpy(fcb_name_save, memory + fcb_addr + 1, 11);
+            memset(memory + fcb_addr + 1, '?', 11);
+            fcb_drive_save = memory[fcb_addr];
+            memory[fcb_addr] = 0; // 0 = default drive (the one selected via BDOS 14)
+            restore_name = 1;
+        }
+    }
+
+    // Mid-file: hand back the next extent without advancing the host-dir scan.
+    if(ah == 0x12 && cpm_ext_left > 0)
+    {
+        cpm_emit_extent(dta);
+        return 0;
+    }
+
+    // Fetch the next host file that fits the disk; skip ones too big to represent.
+    unsigned find = ah;
+    for(;;)
+    {
+        unsigned r = bdos_via_dos(find);
+        if(restore_name)
+        {
+            memcpy(memory + fcb_addr + 1, fcb_name_save, 11);
+            memory[fcb_addr] = fcb_drive_save;
+            restore_name = 0;
+        }
+        if(r == 0xFF)
+            return 0xFF;
+        unsigned long sz = get32(dta + 0x1D);   // size DOS wrote (read before reuse)
+        unsigned dos_attr = memory[dta + 0x0C]; // DOS attr (bit 0 = read-only)
+        unsigned long records = (sz + 127) / 128;
+        unsigned long lext = (sz + 16383) / 16384;             // 16K logical extents
+        unsigned long blocks = (sz + cpm_blk_size - 1) / cpm_blk_size;
+        if(lext > cpm_max_ext ||
+           cpm_blk_next + blocks > (unsigned long)cpm_dsm + 1) // too big / disk full
+        {
+            debug(debug_dos, "CP/M search: skip '%.11s' (%lu blocks won't fit)\n",
+                  (char *)(memory + dta + 1), blocks);
+            find = 0x12;
+            continue;
+        }
+        cpm_ext_name[0] = 0; // user 0 (was the DOS drive byte)
+        memcpy(cpm_ext_name + 1, memory + dta + 1, 11);
+        if(dos_attr & 0x01)
+            cpm_ext_name[9] |= 0x80; // host not writable -> CP/M read-only (t1')
+        cpm_ext_left = blocks;
+        cpm_ext_entry = 0;
+        cpm_ext_records = records;
+        debug(debug_dos, "CP/M search(%02x): '%.11s' sz=%lu recs=%lu blocks=%lu\n", ah,
+              (char *)(memory + dta + 1), sz, records, blocks);
+        break;
+    }
+    cpm_emit_extent(dta);
+    return 0;
+}
+
+// Console status (0xFF if a char is ready) and blocking console input, using
+// emu2's INT 21h keyboard handlers (the BIOS keyboard, with PC-key translation).
 static unsigned cpm_con_status(void)
 {
-    return dos_serial_console ? (unsigned)serial_con_status() : bdos_via_dos(0x0B);
+    return bdos_via_dos(0x0B);
 }
 static unsigned cpm_con_getc(void)
 {
-    if(dos_serial_console)
-    {
-        int c = serial_con_getc();
-        return c < 0 ? 0x1A : (unsigned)(c & 0xFF);
-    }
     return bdos_via_dos(0x07); // direct console input, no echo
 }
 
@@ -516,6 +797,81 @@ void intr_cpm_bdos(void)
     case 32: // Set/Get User Code: DL=0xFF gets it (return 0), else set (ignore)
         bdos_ret(0);
         break;
+
+    case 24: // Get login vector (bit d set = drive d on-line): report the current
+    {        // drive plus every drive explicitly mapped with EMU2_DRIVE_<letter>.
+        unsigned vec = 1u << (dos_get_default_drive() & 0x0F);
+        for(int d = 0; d < 16; d++)
+        {
+            char key[16];
+            snprintf(key, sizeof key, "EMU2_DRIVE_%c", 'A' + d);
+            if(getenv(key))
+                vec |= 1u << d;
+        }
+        bdos_ret(vec);
+        break;
+    }
+
+    case 29: // Get R/O vector: no drives are read-only (the host disk is writable)
+        bdos_ret(0);
+        break;
+
+    case 30: // Set File Attributes: map the CP/M read-only bit (t1' = high bit of
+    {        // FCB byte 9) to a host chmod.  sys/archive bits have no host analog.
+        uint32_t fcb = cpuGetAddrDS(dx);
+        int ro = memory[fcb + 9] & 0x80;
+        bdos_ret(dos_chmod_fcb(fcb, ro) ? 0 : 0xFF);
+        break;
+    }
+
+    case 31: // Get DPB (disk parameter block) address -> returned in ES:BX.
+    {        // Fabricate a DPB for the current drive's geometry.
+        cpm_select_disk(dos_get_default_drive());
+        uint32_t d = (uint32_t)cpm_base_seg * 16 + 0x40; // scratch in the base page
+        put16(d + 0, 8u << cpm_bsh); // SPT  128-byte sectors per track (cosmetic)
+        memory[d + 2] = cpm_bsh;     // BSH  block shift
+        memory[d + 3] = cpm_blm;     // BLM  block mask
+        memory[d + 4] = cpm_exm;     // EXM  extent mask
+        put16(d + 5, cpm_dsm);       // DSM  max block number
+        put16(d + 7, cpm_drm);       // DRM  directory entries - 1
+        // AL0/AL1: the high-order bits mark the blocks reserved for the directory.
+        uint16_t almask = 0;
+        for(unsigned i = 0; i < cpm_dir_blocks && i < 16; i++)
+            almask |= 0x8000u >> i;
+        memory[d + 9] = almask >> 8;   // AL0
+        memory[d + 10] = almask & 0xFF; // AL1
+        put16(d + 11, 0);            // CKS  checksum vector size (fixed disk: 0)
+        put16(d + 13, 2);            // OFF  reserved tracks
+        cpuSetAX(0);
+        cpuSetES(cpm_base_seg);
+        cpuSetBX(0x40); // ES:BX -> DPB  (do NOT use bdos_ret: it clobbers BX)
+        break;
+    }
+
+    case 27: // Get Allocation Vector address -> ES:BX.  Build a bitmap (1 bit per
+    {        // block, MSB first) marking the directory blocks plus the blocks used
+             // by the files now in the directory, so free-space matches the listing.
+        cpm_select_disk(dos_get_default_drive());
+        unsigned nblocks = cpm_dsm + 1;
+        // directory blocks + the blocks used by the current drive's files
+        unsigned long used_blocks =
+            cpm_dir_blocks + cpm_scan_dir(get_base_path(cpm_cur_drive), cpm_blk_size);
+        if(used_blocks > nblocks)
+            used_blocks = nblocks;
+        unsigned nbytes = (nblocks + 7) / 8;
+        for(unsigned i = 0; i < nbytes; i++)
+        {
+            uint8_t bits = 0;
+            for(unsigned b = 0; b < 8; b++)
+                if((unsigned long)(i * 8 + b) < used_blocks)
+                    bits |= 0x80u >> b; // mark used (MSB = lowest block number)
+            memory[cpm_av_addr + i] = bits;
+        }
+        cpuSetAX(0);
+        cpuSetES((uint16_t)(cpm_av_addr >> 4));
+        cpuSetBX((uint16_t)(cpm_av_addr & 0x0F)); // ES:BX -> allocation vector
+        break;
+    }
 
     case 50: // S_BIOS: direct BIOS call.  16-bit CP/M-86 allows only character
     {        // I/O.  Parameter block at DS:DX: +0 func, +1 CL, +2 CH, +3 DL, +4 DH.

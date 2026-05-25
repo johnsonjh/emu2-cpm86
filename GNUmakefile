@@ -9,6 +9,7 @@ include platform.mk
 OBJS=\
  codepage.o\
  cpm86.o\
+ cpm86_console.o\
  cpu.o\
  dbg.o\
  dis.o\
@@ -51,8 +52,8 @@ obj/codepage.o: src/codepage.c src/codepage.h src/dbg.h src/os.h src/env.h
 obj/cpu.o: src/cpu.c src/cpu.h src/dbg.h src/os.h src/dis.h src/emu.h
 obj/dbg.o: src/dbg.c src/dbg.h src/os.h src/env.h src/version.h
 obj/dis.o: src/dis.c src/dis.h src/emu.h
-obj/dos.o: src/dos.c src/dos.h src/codepage.h src/dbg.h src/os.h \
- src/dosnames.h src/emu.h src/env.h src/keyb.h src/loader.h \
+obj/dos.o: src/dos.c src/dos.h src/codepage.h src/cpm86.h src/cpm86_console.h \
+ src/dbg.h src/os.h src/dosnames.h src/emu.h src/env.h src/keyb.h src/loader.h \
  src/timer.h src/utils.h src/video.h
 obj/dosnames.o: src/dosnames.c src/dosnames.h src/dbg.h src/os.h src/emu.h \
  src/env.h
@@ -64,3 +65,4 @@ obj/timer.o: src/timer.c src/timer.h src/dbg.h src/os.h src/emu.h
 obj/utils.o: src/utils.c src/utils.h src/dbg.h src/os.h
 obj/video.o: src/video.c src/video.h src/codepage.h src/dbg.h src/os.h \
  src/emu.h src/env.h src/keyb.h
+obj/cpm86_console.o: src/cpm86_console.c src/cpm86_console.h src/dos.h src/video.h

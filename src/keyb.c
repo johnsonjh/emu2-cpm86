@@ -428,32 +428,6 @@ static void init_keyboard(void)
     set_raw_term(1);
 }
 
-// --- Raw serial-console input ---------------------------------------------
-// For EMU2_SERIAL_CONSOLE mode: deliver the terminal's bytes verbatim, with no
-// PC-keyboard translation, so a CP/M-86 program talking to an ANSI/VT terminal
-// receives a bare ESC, the terminal's own key escape sequences, and (crucially)
-// the terminal's replies to queries like the cursor-position report.
-
-// Returns 0xFF if a byte is ready to read, 0 otherwise.
-int serial_con_status(void)
-{
-    init_keyboard();
-    struct pollfd pfd = {tty_fd, POLLIN, 0};
-    return poll(&pfd, 1, 0) > 0 ? 0xFF : 0;
-}
-
-// Reads one raw byte (blocking); returns 0-255, or -1 on EOF.
-int serial_con_getc(void)
-{
-    init_keyboard();
-    unsigned char c;
-    ssize_t r;
-    do
-        r = read(tty_fd, &c, 1);
-    while(r < 0 && errno == EINTR);
-    return r == 1 ? c : -1;
-}
-
 // Disables keyboard support - will be enabled again if needed
 void suspend_keyboard(void)
 {
@@ -541,11 +515,17 @@ static uint8_t keyb_command = 0;
 // Handle keyboard controller port reading
 uint8_t keyb_read_port(unsigned port)
 {
+    static uint8_t last_key = 0;
     if(queued_key == -1)
         kbhit();
     debug(debug_int, "keyboard read_port: %02X (key=%04X)\n", port, 0xFFFFU & queued_key);
     if(port == 0x60)
-        return queued_key >> 8;
+    {
+        if(queued_key != -1)
+             last_key = queued_key >> 8;
+         queued_key = -1;
+         return last_key;
+    }
     else if(port == 0x61)
         return portB_ctl; // Controller B, used for speaker output
     else if(port == 0x64)
@@ -624,6 +604,11 @@ void intr16(void)
         // TODO: implement differences between 00h / 10h
         ax = getch(0);
         cpuSetAX(ax);
+        // Trace what the program actually receives: a normal key returns its
+        // ASCII in AL (AH = scancode); a special/function key returns AL=0.
+        debug(debug_int, "\tINT16 GET-KEY -> AX=%04X (scan=%02X asc=%02X '%c')\n",
+              ax & 0xFFFF, (ax >> 8) & 0xFF, ax & 0xFF,
+              (ax & 0xFF) >= 0x20 && (ax & 0xFF) < 0x7F ? (char)(ax & 0xFF) : '.');
         break;
     case 1:    // GET KEY AVAILABLE
     case 0x11: // CHECK FOR ENHANCED KEY AVAILABLE
@@ -634,6 +619,8 @@ void intr16(void)
             cpuSetFlag(cpuFlag_ZF);
         else
             cpuClrFlag(cpuFlag_ZF);
+        debug(debug_int, "\tINT16 CHECK -> AX=%04X ZF=%d (%s)\n", ax & 0xFFFF,
+              ax == 0 ? 1 : 0, ax == 0 ? "no key" : "key ready");
         break;
     case 2: // GET SHIFT FLAGS
         // Start keyboard handling and read key to fill mod_state

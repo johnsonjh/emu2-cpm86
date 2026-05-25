@@ -1,6 +1,7 @@
 #include "dos.h"
 #include "codepage.h"
 #include "cpm86.h"
+#include "cpm86_console.h"
 #include "dbg.h"
 #include "dosnames.h"
 #include "emu.h"
@@ -49,7 +50,7 @@ static unsigned dosDTA;
 static unsigned dosver = 0x1E03;
 
 // Allocates memory for static DOS tables, from "rom" memory
-static uint32_t get_static_memory(uint16_t bytes, uint16_t align)
+uint32_t get_static_memory(uint16_t bytes, uint16_t align)
 {
     static uint32_t current = 0xFE000; // Start allocating at F000:0000
     // Align
@@ -309,6 +310,40 @@ static void dos_show_fcb(void)
           memory[addr], name, name + 8, get16(addr + 0x0C), get16(addr + 0x0E),
           get32(addr + 0x10), get16(addr + 0x18), memory[addr + 0x20],
           get32(addr + 0x21));
+}
+
+// CP/M BDOS 30 (Set File Attributes): map the read-only attribute to a host
+// chmod -- read-only clears the write bits (chmod u-w), read-write restores user
+// write (chmod u+w).  Returns 1 on success.  Called from the CP/M BDOS dispatch.
+int dos_chmod_fcb(int fcb_addr, int make_readonly)
+{
+    // The CP/M FCB carries attribute flags in the high bits of the name/type
+    // bytes; mask them off so the name resolves to the real host file.
+    uint8_t save[11];
+    for(int i = 0; i < 11; i++)
+    {
+        save[i] = memory[fcb_addr + 1 + i];
+        memory[fcb_addr + 1 + i] &= 0x7F;
+    }
+    char *fname = dos_unix_path_fcb(fcb_addr, 0, append_path());
+    for(int i = 0; i < 11; i++)
+        memory[fcb_addr + 1 + i] = save[i];
+    int ok = 0;
+    if(fname)
+    {
+        struct stat st;
+        if(0 == stat(fname, &st))
+        {
+            mode_t m = st.st_mode;
+            if(make_readonly)
+                m &= ~(mode_t)(S_IWUSR | S_IWGRP | S_IWOTH);
+            else
+                m |= S_IWUSR;
+            ok = (0 == chmod(fname, m));
+        }
+        free(fname);
+    }
+    return ok;
 }
 
 static void dos_open_file_fcb(int create)
@@ -808,22 +843,24 @@ static void dos_get_drive_info(uint8_t drive)
     cpuClrFlag(cpuFlag_CF);
 }
 
-// Serial-console mode (EMU2_SERIAL_CONSOLE): route console output straight to
-// the host terminal instead of the emulated PC video, so the terminal itself
-// interprets the escape codes.  Needed by CP/M-86 / serial programs (e.g. VEDIT
-// set for an ANSI/VT terminal).  Off by default: DOS and direct-video programs
-// keep using the PC video emulation unchanged.
-int dos_serial_console = 0;
+// Write one byte straight to the console sink (host terminal, or its redirect),
+// bypassing the CP/M-86 console interpreter.  Used by cpm86_console.c to emit the
+// ANSI it translates VT52/DRI sequences into when the PC video screen is inactive.
+void dos_console_putc(uint8_t ch)
+{
+    if(handles[1])
+        fputc(ch, handles[1]);
+    else
+        putchar(ch);
+}
 
 // Writes a character to standard output.
 static void dos_putchar(uint8_t ch, int fd)
 {
-    if(dos_serial_console && devinfo[fd] == 0x80D3)
-    {
-        putchar(ch);
-        fflush(stdout);
+    // Native CP/M-86 programs drive the console as a DOS-PLUS terminal (VT52 +
+    // DRI colour + ANSI); let that layer interpret control sequences first.
+    if(cpm86_active && devinfo[fd] == 0x80D3 && cpm_console_putch((char)ch))
         return;
-    }
     if(devinfo[fd] == 0x80D3 && video_active())
     {
         // Handle TAB character here:
@@ -2587,6 +2624,24 @@ static void init_nls_data(void)
     put16(nls_dbc_set_table, 0); // one entry at least.
 }
 
+// On exit of a CP/M-86 program, emit the newline the CP/M CCP would print before
+// returning to its prompt, so the program's last line isn't left hanging against
+// the host shell.  No-op for DOS programs (cpm86_active stays 0).
+static void cpm_exit_newline(void)
+{
+    // A CCP-style trailing newline, but only for programs that used the raw
+    // console (line tools like LS/STAT).  A program that drove the emulated PC
+    // video screen has its own full-screen layout, and emitting through video.c
+    // here would render/flush the terminal after exit_video() has already closed
+    // it -- atexit handlers run LIFO and exit_video registers later, so it runs
+    // first -- a use-after-free.  Skip the newline when the video screen is live.
+    if(cpm86_active && !video_active())
+    {
+        dos_putchar('\r', 1);
+        dos_putchar('\n', 1);
+    }
+}
+
 void init_dos(int argc, char **argv)
 {
     char args[256], environ[4096];
@@ -2600,6 +2655,7 @@ void init_dos(int argc, char **argv)
 
     // frees the find-first-list on exit
     atexit(free_find_first_dta);
+    atexit(cpm_exit_newline); // CCP-style trailing newline for CP/M programs
 
     // Init DOS version
     if(getenv(ENV_DOSVER))
@@ -2639,12 +2695,6 @@ void init_dos(int argc, char **argv)
         mcb_init(0x80, 0x7FFF);
     else
         mcb_init(0x80, 0xA000);
-
-    // Serial-console mode: pass console output raw to the host terminal.
-    {
-        const char *sc = getenv(ENV_SERIALCON);
-        dos_serial_console = sc && sc[0] && sc[0] != '0';
-    }
 
     // Init SYSVARS
     dos_sysvars = get_static_memory(128, 0);
@@ -2752,8 +2802,11 @@ void init_dos(int argc, char **argv)
         print_error("error loading EXE/COM file.\n");
     fclose(f);
 
-    // Init DTA
-    dosDTA = get_current_PSP() * 16 + 0x80;
+    // Init DTA.  For CP/M-86 the loader already aimed the DTA at the program's
+    // base page (the default DMA buffer at 0x80); that page is separate from the
+    // DOS PSP, so don't clobber it here or directory searches land in the wrong place.
+    if(!cpm86_active)
+        dosDTA = get_current_PSP() * 16 + 0x80;
 
     // Init DOS flags
     cpuSetStartupFlag(cpuFlag_IF);

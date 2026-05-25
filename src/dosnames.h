@@ -34,6 +34,9 @@ const uint8_t *dos_get_cwd(int drive);
 void dos_set_default_drive(int drive);
 int dos_get_default_drive(void);
 
+// Host directory backing CP/M/DOS drive `drive` (0=A); EMU2_DRIVE_<letter> or ".".
+const char *get_base_path(int drive);
+
 // Struct used as return to dosFindFirstFile
 struct dos_file_list
 {

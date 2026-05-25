@@ -28,6 +28,9 @@ uint8_t read_port(unsigned port)
     {
         static int retrace = 0;
         retrace++;
+        // Trace: TED's write_screen polls this before every char it draws to
+        // video RAM, so a burst of these after a keystroke means its redraw ran.
+        debug(debug_int, "\tport 3DA read (CGA retrace poll)\n");
         return (retrace >> 1) & 0x09;
     }
     else if(port == 0x3D4 || port == 0x3D5)
