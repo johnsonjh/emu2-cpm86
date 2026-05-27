@@ -76,6 +76,7 @@ static void cpm_set_dta(void); // defined below; used by the loader
 // Default is CP/M 3.1; override with EMU2_CPMVER (e.g. "2.2", "3.1").
 static uint16_t cpm_version = 0x0031; // packed BDOS version, 0x31 = CP/M 3.1
 static int cpm_lrbc = 1;              // expose LRBC byte-count metadata (CP/M 3+)
+static int cpm_lrbc_trunc = 1;        // also trim host files to the LRBC length
 
 // Parse EMU2_CPMVER ("3.1", "2.2", "3", ...) into the reported BDOS version and
 // decide whether to expose the LRBC byte-count metadata (CP/M 3.0 and later).
@@ -94,8 +95,20 @@ static void cpm_init_version(void)
         cpm_version = (uint16_t)(((major & 0x0F) << 4) | (minor & 0x0F));
     }
     cpm_lrbc = (cpm_version & 0xFF) >= 0x30;
-    debug(debug_dos, "CP/M version reported as %x.%x, LRBC %s\n",
-          (cpm_version >> 4) & 0x0F, cpm_version & 0x0F, cpm_lrbc ? "on" : "off");
+    // EMU2_LRBC_NOTRUNC (any value but 0/off/no/false) keeps the LRBC byte count
+    // visible but stops emu2 from trimming host files to that exact length, in
+    // case a tool relies on output staying padded to the 128-byte record.  Host
+    // truncation also implies LRBC, so a pre-3.0 version (which has no LRBC)
+    // never trims, matching a real CP/M 2.2 that ignores the S1 byte count.
+    {
+        const char *nt = getenv(ENV_LRBC_NOTRUNC);
+        int notrunc = nt && strcasecmp(nt, "0") && strcasecmp(nt, "off")
+                         && strcasecmp(nt, "no") && strcasecmp(nt, "false");
+        cpm_lrbc_trunc = cpm_lrbc && !notrunc;
+    }
+    debug(debug_dos, "CP/M version reported as %x.%x, LRBC %s%s\n",
+          (cpm_version >> 4) & 0x0F, cpm_version & 0x0F, cpm_lrbc ? "on" : "off",
+          (cpm_lrbc && !cpm_lrbc_trunc) ? " (no host truncate)" : "");
 }
 
 // ---------------------------------------------------------------------------
@@ -818,7 +831,25 @@ void intr_cpm_bdos(void)
     // descend from CP/M), so each maps to the matching DOS INT 21h function.
     case 13: bdos_ret(bdos_via_dos(0x0D)); break; // reset disk system
     case 14: bdos_ret(bdos_via_dos(0x0E)); break; // select disk
-    case 16: bdos_ret(bdos_via_dos(0x10)); break; // close file
+    case 16: // close file.  CP/M 3 LRBC: if the program left a partial last-
+    {        // record byte count in S1, trim the host file to that exact length
+             // before closing so its on-disk size is no longer record-rounded.
+        if(cpm_lrbc_trunc)
+        {
+            uint32_t fcb = cpuGetAddrDS(dx);
+            unsigned s1 = memory[fcb + 0x0D] & 0x7F; // 0 = full last record
+            unsigned long sz = get32(fcb + 0x10);
+            if(s1 && sz)
+            {
+                unsigned long recs = (sz + 127) / 128;
+                unsigned long exact = (recs - 1) * 128 + s1;
+                if(exact < sz)
+                    dos_truncate_fcb(fcb, exact);
+            }
+        }
+        bdos_ret(bdos_via_dos(0x10));
+        break;
+    }
     case 17: bdos_ret(cpm_search(0x11)); break; // search for first (CP/M dir entry)
     case 18: bdos_ret(cpm_search(0x12)); break; // search for next
     case 19: bdos_ret(bdos_via_dos(0x13)); break; // delete file

@@ -66,6 +66,10 @@ uint32_t get_static_memory(uint16_t bytes, uint16_t align)
 #define max_handles (0x10000)
 static FILE *handles[max_handles];
 static uint16_t devinfo[max_handles];
+// Set when a handle has been written through since it was opened.  Used by
+// dos_truncate_fcb() (CP/M 3 LRBC) to trim only handles that carry a deliberate
+// byte-count update, never one left dirty by an extending write.
+static unsigned char handle_written[max_handles];
 
 static uint16_t guess_devinfo(FILE *f)
 {
@@ -97,7 +101,10 @@ static int get_new_handle(void)
     int i;
     for(i = 0; i < max_handles; i++)
         if(!handles[i])
+        {
+            handle_written[i] = 0;
             return i;
+        }
     return -1;
 }
 
@@ -407,6 +414,27 @@ static void dos_open_file_fcb(int create)
     free(fname);
 }
 
+// CP/M 3 LRBC: trim the host file behind an open FCB to `length` bytes, so an
+// exact (not record-rounded) length survives on the host disk -- emu2 derives a
+// file's reported size and S1 byte count straight from its host length.  Only
+// an *unwritten* handle is trimmed: that marks a deliberate metadata update (as
+// lzpack does -- write and close via one handle, then re-open just to stamp the
+// S1 byte count), never an S1 left stale by an extending random write.  Returns
+// 0 if it trimmed the file, -1 otherwise.
+int dos_truncate_fcb(int fcb_addr, unsigned long length)
+{
+    unsigned h = get16(fcb_addr + 0x18);
+    FILE *f = (h < max_handles) ? handles[h] : 0;
+    if(!f || handle_written[h])
+        return -1;
+    fflush(f);
+    if(ftruncate(fileno(f), (off_t)length))
+        return -1;
+    put32(fcb_addr + 0x10, length); // keep the FCB's cached size consistent
+    debug(debug_dos, "\tLRBC truncate fcb to %lu bytes\n", length);
+    return 0;
+}
+
 static void dos_seq_to_rand_fcb(int fcb)
 {
     unsigned rsize = get16(0x0E + fcb);
@@ -454,6 +482,8 @@ static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
     if(fseek(f, pos, SEEK_SET))
         return 1; // no data read
     // Read / Write
+    if(write)
+        handle_written[get_fcb_handle()] = 1;
     unsigned n = write ? fwrite(buf, 1, rsize, f) : fread(buf, 1, rsize, f);
     // Update random and block positions
     if(update)

@@ -133,6 +133,14 @@ The available environment variables are:
                        reported; set this to `2.2` for programs that misbehave when
                        told they are running under CP/M 3.
 
+- `EMU2_LRBC_NOTRUNC`  By default, when LRBC is active (CP/M 3.0+), emu2 trims a
+                       host file to its exact byte count on close, so output is no
+                       longer rounded up to a whole 128-byte record. Set this
+                       (to any value other than `0`/`off`/`no`/`false`) to keep
+                       files padded to the record boundary while still reporting
+                       the byte count via `S1`. Has no effect under CP/M 2.2,
+                       which has no LRBC and is never trimmed.
+
 - `EMU2_VT52`          Native CP/M-86 programs drive the console as a DOS-PLUS
                        (CP/M-86 4.1) terminal. emu2 interprets the console control
                        sequences -- VT52 cursor/erase codes, DRI colour codes
