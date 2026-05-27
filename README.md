@@ -141,6 +141,16 @@ The available environment variables are:
                        the byte count via `S1`. Has no effect under CP/M 2.2,
                        which has no LRBC and is never trimmed.
 
+- `EMU2_CPM_ISXLRBC`   Selects how the last-record byte count in `S1` is
+                       interpreted. There is no universally agreed meaning, so two
+                       conventions exist. By default emu2 follows Digital Research's
+                       DOS Plus / Personal CP/M-86: `S1` is the number of bytes
+                       *used* in the last record. Set this to use the ISX-style
+		       (ISIS-II emulator) convention instead, where `S1` is the
+		       number of *unused* bytes in the last record. In both
+		       conventions `S1` of `0` means the file fills its last record
+		       exactly. Has no effect under CP/M 2.2, which has no LRBC.
+
 - `EMU2_VT52`          Native CP/M-86 programs drive the console as a DOS-PLUS
                        (CP/M-86 4.1) terminal. emu2 interprets the console control
                        sequences -- VT52 cursor/erase codes, DRI colour codes

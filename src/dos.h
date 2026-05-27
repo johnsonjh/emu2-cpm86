@@ -8,6 +8,8 @@
 void init_dos(int argc, char **argv);
 int dos_chmod_fcb(int fcb_addr, int make_readonly);
 int dos_truncate_fcb(int fcb_addr, unsigned long length);
+long dos_fcb_size_by_name(int fcb_addr);
+int dos_truncate_fcb_name(int fcb_addr, unsigned long length);
 uint32_t get_static_memory(uint16_t bytes, uint16_t align);
 // Raw byte to the console sink (no CP/M-86 console translation); see dos.c.
 void dos_console_putc(uint8_t ch);

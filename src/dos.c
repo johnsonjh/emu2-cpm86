@@ -322,10 +322,12 @@ static void dos_show_fcb(void)
 // CP/M BDOS 30 (Set File Attributes): map the read-only attribute to a host
 // chmod -- read-only clears the write bits (chmod u-w), read-write restores user
 // write (chmod u+w).  Returns 1 on success.  Called from the CP/M BDOS dispatch.
-int dos_chmod_fcb(int fcb_addr, int make_readonly)
+// Resolve a CP/M/DOS FCB to its host path.  The CP/M FCB carries attribute
+// flags in the high bits of the 8.3 name bytes; mask them off so the name
+// resolves to the real host file, then restore them.  Returns a malloc'd path
+// (caller frees), or NULL if it cannot be resolved.
+static char *fcb_host_path(int fcb_addr)
 {
-    // The CP/M FCB carries attribute flags in the high bits of the name/type
-    // bytes; mask them off so the name resolves to the real host file.
     uint8_t save[11];
     for(int i = 0; i < 11; i++)
     {
@@ -335,6 +337,12 @@ int dos_chmod_fcb(int fcb_addr, int make_readonly)
     char *fname = dos_unix_path_fcb(fcb_addr, 0, append_path());
     for(int i = 0; i < 11; i++)
         memory[fcb_addr + 1 + i] = save[i];
+    return fname;
+}
+
+int dos_chmod_fcb(int fcb_addr, int make_readonly)
+{
+    char *fname = fcb_host_path(fcb_addr);
     int ok = 0;
     if(fname)
     {
@@ -433,6 +441,53 @@ int dos_truncate_fcb(int fcb_addr, unsigned long length)
     put32(fcb_addr + 0x10, length); // keep the FCB's cached size consistent
     debug(debug_dos, "\tLRBC truncate fcb to %lu bytes\n", length);
     return 0;
+}
+
+// Host byte size of the (possibly closed) file an FCB names, or -1 if it is not
+// a regular file or cannot be resolved.  Used by the F_ATTRIB set-LRBC path,
+// which runs after the program has already closed the file.
+long dos_fcb_size_by_name(int fcb_addr)
+{
+    char *fname = fcb_host_path(fcb_addr);
+    long sz = -1;
+    if(fname)
+    {
+        struct stat st;
+        if(0 == stat(fname, &st) && S_ISREG(st.st_mode))
+            sz = (long)st.st_size;
+        free(fname);
+    }
+    return sz;
+}
+
+// CP/M 3 / DOS Plus exact-size via F_ATTRIB (BDOS 30): a program closes the file
+// and then re-issues F_ATTRIB asking us to shrink it to its exact length.
+// Unlike dos_truncate_fcb() this works on a *closed* file, resolved by name.
+// It is strictly shrink-only and refuses unless the trim stays within the final
+// 128-byte record (size - length < 128); a larger delta means `length` is
+// inconsistent with the file on disk, so we leave it untouched rather than risk
+// discarding real data.  Returns 0 if it trimmed the file, -1 otherwise.
+int dos_truncate_fcb_name(int fcb_addr, unsigned long length)
+{
+    char *fname = fcb_host_path(fcb_addr);
+    int ret = -1;
+    if(fname)
+    {
+        struct stat st;
+        if(0 == stat(fname, &st) && S_ISREG(st.st_mode) &&
+           length < (unsigned long)st.st_size &&
+           (unsigned long)st.st_size - length < 128)
+        {
+            if(0 == truncate(fname, (off_t)length))
+            {
+                debug(debug_dos, "\tLRBC F_ATTRIB truncate '%s' to %lu bytes\n",
+                      fname, length);
+                ret = 0;
+            }
+        }
+        free(fname);
+    }
+    return ret;
 }
 
 static void dos_seq_to_rand_fcb(int fcb)

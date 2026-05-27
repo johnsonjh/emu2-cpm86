@@ -6,7 +6,6 @@
 #include "env.h"
 #include "dosnames.h"
 #include "emu.h"
-#include "keyb.h"
 #include "loader.h"
 
 #include <stdio.h>
@@ -77,6 +76,33 @@ static void cpm_set_dta(void); // defined below; used by the loader
 static uint16_t cpm_version = 0x0031; // packed BDOS version, 0x31 = CP/M 3.1
 static int cpm_lrbc = 1;              // expose LRBC byte-count metadata (CP/M 3+)
 static int cpm_lrbc_trunc = 1;        // also trim host files to the LRBC length
+static int cpm_lrbc_isx = 0;          // S1 holds UNUSED (ISX) vs USED (DOS Plus) bytes
+
+// The S1 byte that carries an exact file's last-record byte count has no
+// universally agreed meaning; two conventions exist (see EMU2_CPM_ISXLRBC):
+//   DOS Plus (default): S1 = bytes USED in the last record (size mod 128).
+//   ISX:                S1 = bytes UNUSED in the last record (128 - that).
+// In both, S1 == 0 means the file fills its last record exactly (no partial
+// tail), so a multiple-of-128 size always encodes as 0 either way.
+
+// Encode an exact file size's last-record byte count into the S1 field.
+static uint8_t cpm_lrbc_encode(unsigned long size)
+{
+    unsigned used = (unsigned)(size & 0x7F); // 0 = the file fills its last record
+    if(cpm_lrbc_isx)
+        return (uint8_t)((128 - used) & 0x7F); // unused bytes (0 stays 0)
+    return (uint8_t)used;                      // used bytes
+}
+
+// Recover the exact file length from a record-rounded size `sz` and an S1 byte
+// count `s1` (caller guarantees s1 != 0, i.e. a genuine partial last record).
+static unsigned long cpm_lrbc_exact(unsigned long sz, unsigned s1)
+{
+    unsigned long recs = (sz + 127) / 128;
+    if(cpm_lrbc_isx)
+        return recs * 128 - s1;       // s1 = unused bytes in the last record
+    return (recs - 1) * 128 + s1;     // s1 = used bytes in the last record
+}
 
 // Parse EMU2_CPMVER ("3.1", "2.2", "3", ...) into the reported BDOS version and
 // decide whether to expose the LRBC byte-count metadata (CP/M 3.0 and later).
@@ -106,9 +132,18 @@ static void cpm_init_version(void)
                          && strcasecmp(nt, "no") && strcasecmp(nt, "false");
         cpm_lrbc_trunc = cpm_lrbc && !notrunc;
     }
-    debug(debug_dos, "CP/M version reported as %x.%x, LRBC %s%s\n",
+    // EMU2_CPM_ISXLRBC (any value but 0/off/no/false) interprets the S1 byte
+    // count as the ISX "unused bytes" convention instead of DOS Plus "used
+    // bytes".  Default off (DOS Plus), matching official DRI behaviour.
+    {
+        const char *isx = getenv(ENV_CPM_ISXLRBC);
+        cpm_lrbc_isx = isx && strcasecmp(isx, "0") && strcasecmp(isx, "off")
+                           && strcasecmp(isx, "no") && strcasecmp(isx, "false");
+    }
+    debug(debug_dos, "CP/M version reported as %x.%x, LRBC %s%s%s\n",
           (cpm_version >> 4) & 0x0F, cpm_version & 0x0F, cpm_lrbc ? "on" : "off",
-          (cpm_lrbc && !cpm_lrbc_trunc) ? " (no host truncate)" : "");
+          (cpm_lrbc && !cpm_lrbc_trunc) ? " (no host truncate)" : "",
+          (cpm_lrbc && cpm_lrbc_isx) ? " (ISX convention)" : "");
 }
 
 // ---------------------------------------------------------------------------
@@ -651,7 +686,7 @@ static void cpm_emit_extent(uint32_t dta)
         // full 128-byte record), so programs see the exact length, not a record-
         // rounded one.  Only the final extent carries it, and only when LRBC is on.
         if(is_last && cpm_lrbc)
-            s1 = (unsigned)(cpm_ext_bytes & 0x7F);
+            s1 = cpm_lrbc_encode(cpm_ext_bytes);
     }
     memory[dta + 0x0C] = ex; // EX
     memory[dta + 0x0D] = s1; // S1 (CP/M 3 last-record byte count; 0 = full)
@@ -841,8 +876,7 @@ void intr_cpm_bdos(void)
             unsigned long sz = get32(fcb + 0x10);
             if(s1 && sz)
             {
-                unsigned long recs = (sz + 127) / 128;
-                unsigned long exact = (recs - 1) * 128 + s1;
+                unsigned long exact = cpm_lrbc_exact(sz, s1);
                 if(exact < sz)
                     dos_truncate_fcb(fcb, exact);
             }
@@ -891,6 +925,24 @@ void intr_cpm_bdos(void)
     case 30: // Set File Attributes: map the CP/M read-only bit (t1' = high bit of
     {        // FCB byte 9) to a host chmod.  sys/archive bits have no host analog.
         uint32_t fcb = cpuGetAddrDS(dx);
+        // CP/M 3 / DOS Plus exact-size: the documented way to record a file's
+        // last-record byte count is to re-issue F_ATTRIB with F6' (bit 7 of FCB
+        // byte 6) set and the byte count in FCB+0x20.  When LRBC truncation is
+        // enabled (off under EMU2_LRBC_NOTRUNC or CP/M 2.2), trim the closed
+        // host file to the exact length that count implies.  dos_truncate_fcb_name
+        // refuses any trim larger than one 128-byte record, so a stray F6' or a
+        // bogus count cannot discard real data.
+        if(cpm_lrbc_trunc && (memory[fcb + 6] & 0x80))
+        {
+            unsigned s1 = memory[fcb + 0x20] & 0x7F; // 0 = full last record
+            long sz = dos_fcb_size_by_name(fcb);
+            if(s1 && sz > 0)
+            {
+                unsigned long exact = cpm_lrbc_exact((unsigned long)sz, s1);
+                if(exact < (unsigned long)sz)
+                    dos_truncate_fcb_name(fcb, exact);
+            }
+        }
         int ro = memory[fcb + 9] & 0x80;
         bdos_ret(dos_chmod_fcb(fcb, ro) ? 0 : 0xFF);
         break;
@@ -972,13 +1024,14 @@ void intr_cpm_bdos(void)
     {
         uint32_t fcb = cpuGetAddrDS(dx);
         unsigned r = bdos_via_dos(0x0F);
-        // S1 (fcb[13]) = bytes in the last record = file size mod 128 (0 = full
-        // 128-byte record).  Only CP/M 3.0+ programs read this field; under 2.2
-        // S1 is reserved and must stay 0, so only fill it when LRBC is enabled.
+        // S1 (fcb[13]) = the last-record byte count (used or unused bytes per
+        // the active convention; 0 = a full 128-byte record).  Only CP/M 3.0+
+        // programs read this field; under 2.2 S1 is reserved and must stay 0,
+        // so only fill it when LRBC is enabled.
         if(r != 0xFF && cpm_lrbc)
         {
             unsigned long sz = get32(fcb + 0x10);
-            memory[fcb + 0x0D] = (uint8_t)(sz & 0x7F);
+            memory[fcb + 0x0D] = cpm_lrbc_encode(sz);
         }
         bdos_ret(r);
         break;

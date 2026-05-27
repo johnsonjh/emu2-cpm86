@@ -54,11 +54,13 @@ NORETURN void print_usage(void)
            "\t\t      3.0+ enables the last-record byte count for exact sizes.\n"
            "  %-18s  Keep CP/M-86 output padded to 128-byte records: report the\n"
            "\t\t      LRBC byte count but do not trim host files to it.\n"
+           "  %-18s  Use the ISX last-record byte count convention (unused bytes)\n"
+           "\t\t      instead of DOS Plus (used bytes); default off (DOS Plus).\n"
            "  %-18s  CP/M-86 console emulation (VT52/colour); set 0 to disable.\n",
            prog_name, ENV_DBG_NAME, ENV_DBG_OPT, ENV_PROGNAME, ENV_DEF_DRIVE, ENV_CWD,
            ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_APPEND, ENV_DOSVER, ENV_ROWS,
            "EMU2_CPM_DISK", "EMU2_CPM_FREE", "EMU2_CPM_PLUS", ENV_CPMVER,
-           ENV_LRBC_NOTRUNC, "EMU2_VT52");
+           ENV_LRBC_NOTRUNC, ENV_CPM_ISXLRBC, "EMU2_VT52");
     exit(EXIT_SUCCESS);
 }
 
