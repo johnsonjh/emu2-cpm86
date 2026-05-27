@@ -3,6 +3,7 @@
 #include "cpm86.h"
 #include "dbg.h"
 #include "dos.h"
+#include "env.h"
 #include "dosnames.h"
 #include "emu.h"
 #include "keyb.h"
@@ -66,6 +67,37 @@ static uint16_t cpm_code_seg, cpm_data_seg, cpm_base_seg;
 static uint16_t cpm_dma_seg, cpm_dma_off;
 static void cpm_set_dta(void); // defined below; used by the loader
 
+// Reported CP/M version (BDOS function 12).  The low byte holds the version as
+// packed nibbles (0x22 = 2.2, 0x31 = 3.1); the high byte is the system type
+// (0 = plain CP/M).  CP/M 3.0 and later maintain the last-record byte count
+// (LRBC) in the directory/FCB S1 field, letting programs recover exact file
+// lengths instead of rounding up to the 128-byte record; older programs that
+// check for 2.2 ignore S1, so the metadata is only exposed when we report 3.0+.
+// Default is CP/M 3.1; override with EMU2_CPMVER (e.g. "2.2", "3.1").
+static uint16_t cpm_version = 0x0031; // packed BDOS version, 0x31 = CP/M 3.1
+static int cpm_lrbc = 1;              // expose LRBC byte-count metadata (CP/M 3+)
+
+// Parse EMU2_CPMVER ("3.1", "2.2", "3", ...) into the reported BDOS version and
+// decide whether to expose the LRBC byte-count metadata (CP/M 3.0 and later).
+static void cpm_init_version(void)
+{
+    const char *ver = getenv(ENV_CPMVER);
+    if(ver)
+    {
+        char *end = 0;
+        long major = strtol(ver, &end, 10);
+        long minor = 0;
+        if(*end == '.' && end[1])
+            minor = strtol(end + 1, &end, 10);
+        if(*end || major < 1 || major > 9 || minor < 0 || minor > 9)
+            print_error("invalid CP/M version '%s'\n", ver);
+        cpm_version = (uint16_t)(((major & 0x0F) << 4) | (minor & 0x0F));
+    }
+    cpm_lrbc = (cpm_version & 0xFF) >= 0x30;
+    debug(debug_dos, "CP/M version reported as %x.%x, LRBC %s\n",
+          (cpm_version >> 4) & 0x0F, cpm_version & 0x0F, cpm_lrbc ? "on" : "off");
+}
+
 // ---------------------------------------------------------------------------
 // Fabricated CP/M "disk" geometry.  Each drive (A..) maps to a host directory
 // (EMU2_DRIVE_<letter>, default "."); we present its files as a CP/M disk whose
@@ -97,6 +129,7 @@ static unsigned cpm_blk_next;         // next free block to hand out (this scan)
 static unsigned long cpm_ext_left;    // blocks of the current file not yet emitted
 static unsigned cpm_ext_entry;        // physical directory-entry index for that file
 static unsigned long cpm_ext_records; // total 128-byte records of the current file
+static unsigned long cpm_ext_bytes;   // exact byte size of the current file (LRBC)
 static uint8_t cpm_ext_name[12];      // user# + 8.3 name (+ attr bits) of that file
 
 // A file is representable (shown, sized for, counted) only if it fits the per-file
@@ -518,6 +551,7 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
           "model=%s\n",
           ng, cpm_code_seg, code->length, cpm_data_seg, extra_seg, extra_par, sp_top,
           model_8080 ? "8080" : "small");
+    cpm_init_version();
     cpm86_active = 1;
     return 1;
 }
@@ -589,19 +623,25 @@ static void cpm_emit_extent(uint32_t dta)
     unsigned long total_lext = (cpm_ext_records + 127) / 128;
 
     memcpy(memory + dta, cpm_ext_name, 12); // user# + name (+ attribute high-bits)
-    unsigned ex = 0, s2 = 0, rc = 0;
+    unsigned ex = 0, s2 = 0, rc = 0, s1 = 0;
     if(total_lext)
     {
         unsigned long last = (unsigned long)(cpm_ext_entry + 1) * lext_per_entry;
         if(last > total_lext)
             last = total_lext;
         unsigned long extnum = last - 1; // highest 16K extent in this entry
-        rc = (extnum == total_lext - 1) ? (unsigned)(cpm_ext_records - extnum * 128) : 128;
+        int is_last = (extnum == total_lext - 1); // file's final extent?
+        rc = is_last ? (unsigned)(cpm_ext_records - extnum * 128) : 128;
         ex = extnum & 0x1F;
         s2 = (extnum >> 5) & 0x3F;
+        // CP/M 3 records the byte count of the file's last record in S1 (0 = a
+        // full 128-byte record), so programs see the exact length, not a record-
+        // rounded one.  Only the final extent carries it, and only when LRBC is on.
+        if(is_last && cpm_lrbc)
+            s1 = (unsigned)(cpm_ext_bytes & 0x7F);
     }
     memory[dta + 0x0C] = ex; // EX
-    memory[dta + 0x0D] = 0;  // S1
+    memory[dta + 0x0D] = s1; // S1 (CP/M 3 last-record byte count; 0 = full)
     memory[dta + 0x0E] = s2; // S2
     memory[dta + 0x0F] = rc; // RC (records in the last 16K extent; 128 = full)
 
@@ -701,6 +741,7 @@ static unsigned cpm_search(unsigned ah)
         cpm_ext_left = blocks;
         cpm_ext_entry = 0;
         cpm_ext_records = records;
+        cpm_ext_bytes = sz;
         debug(debug_dos, "CP/M search(%02x): '%.11s' sz=%lu recs=%lu blocks=%lu\n", ah,
               (char *)(memory + dta + 1), sz, records, blocks);
         break;
@@ -756,8 +797,8 @@ void intr_cpm_bdos(void)
     case 10: bdos_ret(bdos_via_dos(0x0A)); break; // read console buffer
     case 11: bdos_ret(cpm_con_status()); break;   // console status
 
-    case 12: // Return Version Number (0x0022 = CP/M-86 2.2)
-        bdos_ret(0x0022);
+    case 12: // Return Version Number (0x0022 = 2.2, 0x0031 = 3.1); EMU2_CPMVER
+        bdos_ret(cpm_version);
         break;
 
     case 26: // Set DMA Offset (DX); segment stays as last set by func 51
@@ -896,13 +937,15 @@ void intr_cpm_bdos(void)
         break;
     }
 
-    case 15: // open file (+ CP/M-86 LRBC byte count in the S1 field)
+    case 15: // open file (+ CP/M-3 LRBC byte count in the S1 field)
     {
         uint32_t fcb = cpuGetAddrDS(dx);
         unsigned r = bdos_via_dos(0x0F);
-        if(r != 0xFF)
+        // S1 (fcb[13]) = bytes in the last record = file size mod 128 (0 = full
+        // 128-byte record).  Only CP/M 3.0+ programs read this field; under 2.2
+        // S1 is reserved and must stay 0, so only fill it when LRBC is enabled.
+        if(r != 0xFF && cpm_lrbc)
         {
-            // S1 (fcb[13]) = bytes in the last record = file size mod 128.
             unsigned long sz = get32(fcb + 0x10);
             memory[fcb + 0x0D] = (uint8_t)(sz & 0x7F);
         }

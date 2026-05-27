@@ -122,6 +122,17 @@ The available environment variables are:
                        disks, instead of the standard 512 extents (8 MB files, ~8 MB
                        disks). Needs CP/M-3-aware tools to use the larger sizes.
 
+- `EMU2_CPMVER`        CP/M version reported to native CP/M-86 programs by BDOS
+                       function 12, as a major dot minor (e.g. `3.1`, `2.2`) or a
+                       bare major (`3`). Defaults to `3.1`. CP/M 3.0 and later
+                       maintain the *last-record byte count* (LRBC) in the
+                       directory/FCB `S1` field, so programs see exact file lengths
+                       instead of sizes rounded up to the 128-byte record boundary.
+                       Older programs that expect 2.2 treat `S1` as reserved, so the
+                       byte-count metadata is only filled in when a 3.0+ version is
+                       reported; set this to `2.2` for programs that misbehave when
+                       told they are running under CP/M 3.
+
 - `EMU2_VT52`          Native CP/M-86 programs drive the console as a DOS-PLUS
                        (CP/M-86 4.1) terminal. emu2 interprets the console control
                        sequences -- VT52 cursor/erase codes, DRI colour codes

@@ -50,10 +50,12 @@ NORETURN void print_usage(void)
            "\t\t      with EMU2_CPM_DISK_<letter>).\n"
            "  %-18s  CP/M-86 auto-disk target free-space percent (default 25).\n"
            "  %-18s  CP/M-86 CP/M-3 limits: 2048 extents / 32MB files / 512MB.\n"
+           "  %-18s  CP/M-86 reported version, e.g. '3.1' (default) or '2.2'.\n"
+           "\t\t      3.0+ enables the last-record byte count for exact sizes.\n"
            "  %-18s  CP/M-86 console emulation (VT52/colour); set 0 to disable.\n",
            prog_name, ENV_DBG_NAME, ENV_DBG_OPT, ENV_PROGNAME, ENV_DEF_DRIVE, ENV_CWD,
            ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_APPEND, ENV_DOSVER, ENV_ROWS,
-           "EMU2_CPM_DISK", "EMU2_CPM_FREE", "EMU2_CPM_PLUS",
+           "EMU2_CPM_DISK", "EMU2_CPM_FREE", "EMU2_CPM_PLUS", ENV_CPMVER,
            "EMU2_VT52");
     exit(EXIT_SUCCESS);
 }

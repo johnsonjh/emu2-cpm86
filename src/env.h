@@ -12,4 +12,5 @@
 #define ENV_LOWMEM    "EMU2_LOWMEM"
 #define ENV_ROWS      "EMU2_ROWS"
 #define ENV_DOSVER    "EMU2_DOSVER"
+#define ENV_CPMVER    "EMU2_CPMVER"
 #define ENV_CPUSPEED  "EMU2_CPU_SPEED"
