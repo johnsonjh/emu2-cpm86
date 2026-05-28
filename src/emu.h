@@ -64,6 +64,9 @@ unsigned cpuGetSS(void);
 unsigned cpuGetDS(void);
 unsigned cpuGetIP(void);
 
+// CP/M-86 8080-model warm-boot trap segment (see cpu.c / cpm86_load_cmd).
+extern uint16_t cpm_wboot_seg;
+
 // Alter flags in the stack, use from interrupt handling
 enum cpuFlags
 {

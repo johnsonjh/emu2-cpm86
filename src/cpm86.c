@@ -589,6 +589,14 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     cpuSetSP(sp_top);
     cpuPushWord(psp); // exit address segment
     cpuPushWord(0);   // exit address offset -> PSP:0000 = INT 20h
+    // 8080-model / CP/M-80-heritage programs terminate with a near RET to the
+    // warm-boot vector (offset 0), which (unlike a far RETF to PSP:0000) stays in
+    // CS and lands at code:0000.  In the 8080 model the code entry is 0x100, so
+    // code:0000 is never reached by normal execution -- arm a warm-boot trap there
+    // so such a transfer terminates the program instead of executing the base page
+    // as code.  (cpm_wboot_seg = 0 disables the trap for the small/compact models,
+    // whose entry *is* code:0000.)
+    cpm_wboot_seg = model_8080 ? cpm_code_seg : 0;
     cpuSetAX(0);
     cpuSetBX(0);
     cpuSetCX(0);
