@@ -587,9 +587,18 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     cpuSetDS(cpm_base_seg);
     cpuSetES(cpm_base_seg);
     cpuSetSS(cpm_base_seg);
+    // Lay the far "exit" address (PSP:0000 = INT 20h) at the very top of the
+    // stack -- at sp_top and sp_top+2 -- and enter with SP = sp_top.  sp_top is
+    // also base-page word 6 (the stack top the program reads), so the address
+    // sits at the program's stack ceiling: a plain "RETF to exit" pops it, and
+    // so does a program that resets SP from base-page 6 and then RETFs (e.g. CL,
+    // LIBR), because its stack grows DOWN from sp_top and never overwrites
+    // sp_top/sp_top+2.  (Pushing the address *below* sp_top, as before, put it
+    // inside such a program's stack, which clobbered it and sent the exit RETF
+    // into garbage -- an infinite runaway.)
+    put16(bp + sp_top + 0, 0);   // exit IP  -> PSP:0000 = INT 20h
+    put16(bp + sp_top + 2, psp); // exit CS  = PSP segment
     cpuSetSP(sp_top);
-    cpuPushWord(psp); // exit address segment
-    cpuPushWord(0);   // exit address offset -> PSP:0000 = INT 20h
     // 8080-model / CP/M-80-heritage programs terminate with a near RET to the
     // warm-boot vector (offset 0), which (unlike a far RETF to PSP:0000) stays in
     // CS and lands at code:0000.  In the 8080 model the code entry is 0x100, so
