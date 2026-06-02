@@ -179,6 +179,7 @@ static unsigned cpm_ext_entry;        // physical directory-entry index for that
 static unsigned long cpm_ext_records; // total 128-byte records of the current file
 static unsigned long cpm_ext_bytes;   // exact byte size of the current file (LRBC)
 static uint8_t cpm_ext_name[12];      // user# + 8.3 name (+ attr bits) of that file
+static int cpm_all_ext;               // emit every extent vs only the matching first
 
 // A file is representable (shown, sized for, counted) only if it fits the per-file
 // extent limit -- 512 extents (8MB) normally, 2048 (32MB) with EMU2_CPM_PLUS.
@@ -735,6 +736,15 @@ static unsigned cpm_search(unsigned ah)
     if(ah == 0x11)
     {
         fcb_addr = cpuGetAddrDS(cpuGetDX());
+        // A real CP/M directory holds one entry per 16K extent, so a big file
+        // owns several.  Whether a search returns them all or just one depends on
+        // the FCB: a '?' (0x3F) drive byte matches every entry (the raw-directory
+        // read SDIR/STAT use to total sizes), and a '?' in the EX field matches
+        // all extents; any other EX matches only that extent.  So emit every
+        // extent only in those "match all" cases -- otherwise just the first, so
+        // a plain search (DIR uses drive=current, EX=0) lists each file once
+        // instead of once per extent.
+        cpm_all_ext = (memory[fcb_addr] == 0x3F) || (memory[fcb_addr + 0x0C] == 0x3F);
         // Select the FCB's drive (byte 0: 0/wildcard = current, 1..16 = A..P) so
         // the block geometry matches the directory the DOS find will read.
         unsigned fdrv = memory[fcb_addr] & 0x1F;
@@ -803,6 +813,8 @@ static unsigned cpm_search(unsigned ah)
         break;
     }
     cpm_emit_extent(dta);
+    if(!cpm_all_ext)
+        cpm_ext_left = 0; // matched the first extent only: next call advances files
     return 0;
 }
 
@@ -817,6 +829,95 @@ static unsigned cpm_con_getc(void)
     return bdos_via_dos(0x07); // direct console input, no echo
 }
 
+// Characters (besides the structural '.' and 'd:') that end a filename token in
+// a CP/M command line, as recognized by F_PARSE.  A null or carriage return ends
+// the whole input; the rest are separators between successive specifications.
+static int cpm_fname_delim(unsigned c)
+{
+    return c <= ' ' /* null, tab, CR, space, other control */ ||
+           c == ',' || c == ';' || c == '=' || c == '<' || c == '>' ||
+           c == '|' || c == '[' || c == ']';
+}
+
+// BDOS 152 (F_PARSE): parse one ASCII file specification into an FCB.  The PFCB
+// at DS:DX holds two words -- +0 the offset of the input string, +2 the offset
+// of the target FCB (both relative to the program's DS).  The FCB is filled in:
+// drive (0 = default, 1..16 = A..P), an 8-char name and 3-char type uppercased
+// and blank-padded with '*' expanded to '?', and ex/s1/s2/rc cleared.  Returns,
+// per the DRI spec (matching what DIR.CMD expects):
+//     0xFFFF  the file specification was invalid
+//     0       it was the last one (terminated by a null or carriage return)
+//     else    the offset of the delimiter that ended it, so the caller can step
+//             past that delimiter and parse the following specification.
+// Without this, DIR (which loops until F_PARSE returns 0) spun forever, as the
+// unimplemented default returned 0x00FF -- nonzero, so "more to parse" -- every
+// time.  Parsing is deliberately lenient (over-long fields and stray dots are
+// truncated, never reported as 0xFFFF) so a malformed tail can't wedge a caller.
+static unsigned cpm_parse_fcb(unsigned dx)
+{
+    uint32_t pfcb = cpuGetAddrDS(dx);
+    uint16_t sptr = get16(pfcb + 0); // offset of the input ASCII string
+    uint16_t fptr = get16(pfcb + 2); // offset of the FCB to fill
+    uint32_t fcb = cpuGetAddrDS(fptr);
+
+    // Read the i'th input byte, wrapping the 16-bit offset inside the segment.
+#define CPM_IN(i) memory[cpuGetAddrDS((uint16_t)(sptr + (i)))]
+
+    // Initialize the FCB: default drive, blank 8.3 name, cleared ex/s1/s2/rc.
+    memory[fcb] = 0;
+    memset(memory + fcb + 1, ' ', 11);
+    memset(memory + fcb + 12, 0, 4);
+
+    unsigned i = 0;
+    while(CPM_IN(i) == ' ' || CPM_IN(i) == '\t') // skip leading blanks
+        i++;
+    if(CPM_IN(i) == 0 || CPM_IN(i) == '\r') // nothing but blanks then end-of-line
+        return 0;
+
+    // Optional "d:" drive prefix.
+    unsigned d = CPM_IN(i) & ~0x20u; // fold to upper case
+    if(d >= 'A' && d <= 'Z' && CPM_IN(i + 1) == ':')
+    {
+        memory[fcb] = d - 'A' + 1; // 1 = A: .. 16 = P:
+        i += 2;
+    }
+
+    // Name (8 bytes at FCB+1), then type (3 bytes at FCB+9) after a '.'.
+    unsigned fpos = 1, maxlen = 8, n = 0;
+    for(;;)
+    {
+        unsigned c = CPM_IN(i);
+        if(c == 0 || c == '\r' || cpm_fname_delim(c))
+            break;
+        if(c == '.')
+        {
+            if(fpos != 1) // only the first '.' separates name from type
+                break;
+            fpos = 9, maxlen = 3, n = 0;
+            i++;
+            continue;
+        }
+        if(c == '*') // expand to '?' through the end of the current field
+        {
+            while(n < maxlen)
+                memory[fcb + fpos + n++] = '?';
+            i++;
+            continue;
+        }
+        if(n < maxlen) // store the char (uppercased); over-long fields truncate
+            memory[fcb + fpos + n++] = (c >= 'a' && c <= 'z') ? c - 0x20 : c;
+        i++;
+    }
+
+    // Null/CR ends the whole line (return 0); any other delimiter separates this
+    // spec from the next, so hand back its offset for the caller to step over.
+    unsigned t = CPM_IN(i);
+    if(t == 0 || t == '\r')
+        return 0;
+    return (uint16_t)(sptr + i);
+#undef CPM_IN
+}
+
 void intr_cpm_bdos(void)
 {
     unsigned func = cpuGetCX() & 0xFF;
@@ -824,8 +925,14 @@ void intr_cpm_bdos(void)
 
     switch(func)
     {
-    case 0: // System Reset / program termination
-        debug(debug_dos, "CP/M BDOS 0: system reset\n");
+    case 0:   // System Reset / program termination
+    case 143: // P_TERM: Terminate Process (MP/M, Concurrent CP/M, CP/M-86 v4).
+              // On a single-user system -- which emu2 emulates -- this behaves
+              // exactly like function 0: end the program.  DL holds a termination
+              // code we have no use for.  Transients such as DIR exit through
+              // this; without it they ran off the end of their code into a
+              // zero-filled NOP-sled that wrapped around and re-ran them forever.
+        debug(debug_dos, "CP/M BDOS %u: program termination\n", func);
         exit(0);
 
     // Output (2,9) and buffered input (10) delegate to emu2's INT 21h handlers
@@ -1124,6 +1231,10 @@ void intr_cpm_bdos(void)
         bdos_ret(((lt->tm_sec / 10) << 4) | (lt->tm_sec % 10));
         break;
     }
+
+    case 152: // F_PARSE: parse a filename from DS:[PFCB] into an FCB (CP/M 3).
+        bdos_ret(cpm_parse_fcb(dx));
+        break;
 
     default:
         debug(debug_dos, "CP/M BDOS %u: UNIMPLEMENTED (DX=%04x)\n", func, dx);
