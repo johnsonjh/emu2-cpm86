@@ -12,11 +12,24 @@
 #include <sys/time.h>
 #include <termios.h>
 #include <unistd.h>
+#include <poll.h>
 
 #define MAX_KEYB_CALLS 10
 
 static int term_raw = 0;
 static int tty_fd = -1;
+
+// Read one byte from the tty, waiting at most `ms` for it.  Returns 1 and sets
+// *c on success, 0 on timeout / EOF.  Used for escape-sequence lookahead so a
+// bare ESC keypress isn't held waiting for a follow-up byte (real sequences
+// like cursor keys arrive as an immediate burst).
+static int read_key_ms(char *c, int ms)
+{
+    struct pollfd pfd = {tty_fd, POLLIN, 0};
+    if(poll(&pfd, 1, ms) <= 0)
+        return 0;
+    return read(tty_fd, c, 1) == 1;
+}
 static int queued_key = -1;
 static int waiting_key = 0;
 static int mod_state = 0;
@@ -234,7 +247,9 @@ static int get_esc_sequence(void)
     // ESC [ <modifiers> <letter>       Function Keys
     mod_state = 0;
     char ch = '\xFF';
-    if(read(tty_fd, &ch, 1) == 0)
+    // No follow-up byte arrives shortly => this was a bare ESC keypress, not
+    // the start of a cursor/function-key sequence.
+    if(!read_key_ms(&ch, 50))
         return 0x011B; // ESC
     if(ch != '[' && ch != 'O')
         return alt_char(ch);
@@ -243,7 +258,7 @@ static int get_esc_sequence(void)
     while(1)
     {
         char cn = '\xFF';
-        if(read(tty_fd, &cn, 1) == 0)
+        if(!read_key_ms(&cn, 50))
         {
             if(n1 == 0 && n2 == 0)
                 return alt_char(ch); // it is an ALT+'[' or ALT+'O'
@@ -589,6 +604,11 @@ void intr16(void)
         // TODO: implement differences between 00h / 10h
         ax = getch(0);
         cpuSetAX(ax);
+        // Trace what the program actually receives: a normal key returns its
+        // ASCII in AL (AH = scancode); a special/function key returns AL=0.
+        debug(debug_int, "\tINT16 GET-KEY -> AX=%04X (scan=%02X asc=%02X '%c')\n",
+              ax & 0xFFFF, (ax >> 8) & 0xFF, ax & 0xFF,
+              (ax & 0xFF) >= 0x20 && (ax & 0xFF) < 0x7F ? (char)(ax & 0xFF) : '.');
         break;
     case 1:    // GET KEY AVAILABLE
     case 0x11: // CHECK FOR ENHANCED KEY AVAILABLE
@@ -599,6 +619,8 @@ void intr16(void)
             cpuSetFlag(cpuFlag_ZF);
         else
             cpuClrFlag(cpuFlag_ZF);
+        debug(debug_int, "\tINT16 CHECK -> AX=%04X ZF=%d (%s)\n", ax & 0xFFFF,
+              ax == 0 ? 1 : 0, ax == 0 ? "no key" : "key ready");
         break;
     case 2: // GET SHIFT FLAGS
         // Start keyboard handling and read key to fill mod_state

@@ -20,6 +20,10 @@ static uint16_t sregs[4];
 static uint16_t ip;
 static uint16_t start_ip; // IP at start of instruction, used on interrupts.
 
+// CP/M-86 8080-model warm-boot trap: code segment whose offset 0 terminates the
+// program (set by the CP/M loader; 0 disables).  See cpm86_load_cmd().
+uint16_t cpm_wboot_seg = 0;
+
 /* All the byte flags will either be 1 or 0 */
 static int8_t CF, PF, ZF, TF, IF, DF;
 
@@ -2613,6 +2617,12 @@ void execute(void)
             }
         }
         handle_irq();
+        // CP/M-86 warm boot: a transfer to code:0000 in the 8080 model terminates
+        // the program (it is never reached by normal execution, which enters at
+        // 0x100).  This catches the near-RET-to-warm-boot exit idiom that would
+        // otherwise execute the base page as code.
+        if(cpm_wboot_seg && sregs[CS] == cpm_wboot_seg && ip == 0)
+            exit(0);
         next_instruction();
     }
 }

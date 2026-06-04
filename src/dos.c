@@ -1,5 +1,7 @@
 #include "dos.h"
 #include "codepage.h"
+#include "cpm86.h"
+#include "cpm86_console.h"
 #include "dbg.h"
 #include "dosnames.h"
 #include "emu.h"
@@ -48,7 +50,7 @@ static unsigned dosDTA;
 static unsigned dosver = 0x1E03;
 
 // Allocates memory for static DOS tables, from "rom" memory
-static uint32_t get_static_memory(uint16_t bytes, uint16_t align)
+uint32_t get_static_memory(uint16_t bytes, uint16_t align)
 {
     static uint32_t current = 0xFE000; // Start allocating at F000:0000
     // Align
@@ -64,6 +66,10 @@ static uint32_t get_static_memory(uint16_t bytes, uint16_t align)
 #define max_handles (0x10000)
 static FILE *handles[max_handles];
 static uint16_t devinfo[max_handles];
+// Set when a handle has been written through since it was opened.  Used by
+// dos_truncate_fcb() (CP/M 3 LRBC) to trim only handles that carry a deliberate
+// byte-count update, never one left dirty by an extending write.
+static unsigned char handle_written[max_handles];
 
 static uint16_t guess_devinfo(FILE *f)
 {
@@ -95,7 +101,10 @@ static int get_new_handle(void)
     int i;
     for(i = 0; i < max_handles; i++)
         if(!handles[i])
+        {
+            handle_written[i] = 0;
             return i;
+        }
     return -1;
 }
 
@@ -310,6 +319,48 @@ static void dos_show_fcb(void)
           get32(addr + 0x21));
 }
 
+// CP/M BDOS 30 (Set File Attributes): map the read-only attribute to a host
+// chmod -- read-only clears the write bits (chmod u-w), read-write restores user
+// write (chmod u+w).  Returns 1 on success.  Called from the CP/M BDOS dispatch.
+// Resolve a CP/M/DOS FCB to its host path.  The CP/M FCB carries attribute
+// flags in the high bits of the 8.3 name bytes; mask them off so the name
+// resolves to the real host file, then restore them.  Returns a malloc'd path
+// (caller frees), or NULL if it cannot be resolved.
+static char *fcb_host_path(int fcb_addr)
+{
+    uint8_t save[11];
+    for(int i = 0; i < 11; i++)
+    {
+        save[i] = memory[fcb_addr + 1 + i];
+        memory[fcb_addr + 1 + i] &= 0x7F;
+    }
+    char *fname = dos_unix_path_fcb(fcb_addr, 0, append_path());
+    for(int i = 0; i < 11; i++)
+        memory[fcb_addr + 1 + i] = save[i];
+    return fname;
+}
+
+int dos_chmod_fcb(int fcb_addr, int make_readonly)
+{
+    char *fname = fcb_host_path(fcb_addr);
+    int ok = 0;
+    if(fname)
+    {
+        struct stat st;
+        if(0 == stat(fname, &st))
+        {
+            mode_t m = st.st_mode;
+            if(make_readonly)
+                m &= ~(mode_t)(S_IWUSR | S_IWGRP | S_IWOTH);
+            else
+                m |= S_IWUSR;
+            ok = (0 == chmod(fname, m));
+        }
+        free(fname);
+    }
+    return ok;
+}
+
 static void dos_open_file_fcb(int create)
 {
     int h = get_new_handle();
@@ -333,6 +384,8 @@ static void dos_open_file_fcb(int create)
     const char *mode = create ? "w+b" : "r+b";
     debug(debug_dos, "\topen fcb '%s', '%s', %04x ", fname, mode, (unsigned)h);
     handles[h] = fopen(fname, mode);
+    if(!handles[h] && !create)
+        handles[h] = fopen(fname, "rb"); // write-protected file: open read-only
     if(!handles[h])
     {
         dos_error = 4;
@@ -367,6 +420,74 @@ static void dos_open_file_fcb(int create)
     dos_error = 0;
     dos_show_fcb();
     free(fname);
+}
+
+// CP/M 3 LRBC: trim the host file behind an open FCB to `length` bytes, so an
+// exact (not record-rounded) length survives on the host disk -- emu2 derives a
+// file's reported size and S1 byte count straight from its host length.  Only
+// an *unwritten* handle is trimmed: that marks a deliberate metadata update (as
+// lzpack does -- write and close via one handle, then re-open just to stamp the
+// S1 byte count), never an S1 left stale by an extending random write.  Returns
+// 0 if it trimmed the file, -1 otherwise.
+int dos_truncate_fcb(int fcb_addr, unsigned long length)
+{
+    unsigned h = get16(fcb_addr + 0x18);
+    FILE *f = (h < max_handles) ? handles[h] : 0;
+    if(!f || handle_written[h])
+        return -1;
+    fflush(f);
+    if(ftruncate(fileno(f), (off_t)length))
+        return -1;
+    put32(fcb_addr + 0x10, length); // keep the FCB's cached size consistent
+    debug(debug_dos, "\tLRBC truncate fcb to %lu bytes\n", length);
+    return 0;
+}
+
+// Host byte size of the (possibly closed) file an FCB names, or -1 if it is not
+// a regular file or cannot be resolved.  Used by the F_ATTRIB set-LRBC path,
+// which runs after the program has already closed the file.
+long dos_fcb_size_by_name(int fcb_addr)
+{
+    char *fname = fcb_host_path(fcb_addr);
+    long sz = -1;
+    if(fname)
+    {
+        struct stat st;
+        if(0 == stat(fname, &st) && S_ISREG(st.st_mode))
+            sz = (long)st.st_size;
+        free(fname);
+    }
+    return sz;
+}
+
+// CP/M 3 / DOS Plus exact-size via F_ATTRIB (BDOS 30): a program closes the file
+// and then re-issues F_ATTRIB asking us to shrink it to its exact length.
+// Unlike dos_truncate_fcb() this works on a *closed* file, resolved by name.
+// It is strictly shrink-only and refuses unless the trim stays within the final
+// 128-byte record (size - length < 128); a larger delta means `length` is
+// inconsistent with the file on disk, so we leave it untouched rather than risk
+// discarding real data.  Returns 0 if it trimmed the file, -1 otherwise.
+int dos_truncate_fcb_name(int fcb_addr, unsigned long length)
+{
+    char *fname = fcb_host_path(fcb_addr);
+    int ret = -1;
+    if(fname)
+    {
+        struct stat st;
+        if(0 == stat(fname, &st) && S_ISREG(st.st_mode) &&
+           length < (unsigned long)st.st_size &&
+           (unsigned long)st.st_size - length < 128)
+        {
+            if(0 == truncate(fname, (off_t)length))
+            {
+                debug(debug_dos, "\tLRBC F_ATTRIB truncate '%s' to %lu bytes\n",
+                      fname, length);
+                ret = 0;
+            }
+        }
+        free(fname);
+    }
+    return ret;
 }
 
 static void dos_seq_to_rand_fcb(int fcb)
@@ -416,6 +537,8 @@ static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
     if(fseek(f, pos, SEEK_SET))
         return 1; // no data read
     // Read / Write
+    if(write)
+        handle_written[get_fcb_handle()] = 1;
     unsigned n = write ? fwrite(buf, 1, rsize, f) : fread(buf, 1, rsize, f);
     // Update random and block positions
     if(update)
@@ -805,9 +928,24 @@ static void dos_get_drive_info(uint8_t drive)
     cpuClrFlag(cpuFlag_CF);
 }
 
+// Write one byte straight to the console sink (host terminal, or its redirect),
+// bypassing the CP/M-86 console interpreter.  Used by cpm86_console.c to emit the
+// ANSI it translates VT52/DRI sequences into when the PC video screen is inactive.
+void dos_console_putc(uint8_t ch)
+{
+    if(handles[1])
+        fputc(ch, handles[1]);
+    else
+        putchar(ch);
+}
+
 // Writes a character to standard output.
 static void dos_putchar(uint8_t ch, int fd)
 {
+    // Native CP/M-86 programs drive the console as a DOS-PLUS terminal (VT52 +
+    // DRI colour + ANSI); let that layer interpret control sequences first.
+    if(cpm86_active && devinfo[fd] == 0x80D3 && cpm_console_putch((char)ch))
+        return;
     if(devinfo[fd] == 0x80D3 && video_active())
     {
         // Handle TAB character here:
@@ -2571,6 +2709,24 @@ static void init_nls_data(void)
     put16(nls_dbc_set_table, 0); // one entry at least.
 }
 
+// On exit of a CP/M-86 program, emit the newline the CP/M CCP would print before
+// returning to its prompt, so the program's last line isn't left hanging against
+// the host shell.  No-op for DOS programs (cpm86_active stays 0).
+static void cpm_exit_newline(void)
+{
+    // A CCP-style trailing newline, but only for programs that used the raw
+    // console (line tools like LS/STAT).  A program that drove the emulated PC
+    // video screen has its own full-screen layout, and emitting through video.c
+    // here would render/flush the terminal after exit_video() has already closed
+    // it -- atexit handlers run LIFO and exit_video registers later, so it runs
+    // first -- a use-after-free.  Skip the newline when the video screen is live.
+    if(cpm86_active && !video_active())
+    {
+        dos_putchar('\r', 1);
+        dos_putchar('\n', 1);
+    }
+}
+
 void init_dos(int argc, char **argv)
 {
     char args[256], environ[4096];
@@ -2584,6 +2740,7 @@ void init_dos(int argc, char **argv)
 
     // frees the find-first-list on exit
     atexit(free_find_first_dta);
+    atexit(cpm_exit_newline); // CCP-style trailing newline for CP/M programs
 
     // Init DOS version
     if(getenv(ENV_DOSVER))
@@ -2710,21 +2867,31 @@ void init_dos(int argc, char **argv)
             progname = buf;
     }
 
-    // Create main PSP
+    // Create main PSP. It owns the program's memory (so mem_alloc_segment
+    // works) and provides the file-handle table; CP/M-86 ignores its contents
+    // but reuses the ownership + I/O machinery.
     int psp_mcb = create_PSP(args, environ, p - environ + 1, progname);
     free(buf);
 
-    // Load program
+    // Load program: open it, then pick the CP/M-86 or the DOS loader.
     const char *name = argv[0];
     FILE *f = fopen(name, "rb");
     if(!f)
         print_error("can't open '%s': %s\n", name, strerror(errno));
-    if(!dos_load_exe(f, psp_mcb))
+    if(cpm86_detect(f, name))
+    {
+        if(!cpm86_load_cmd(f, args))
+            print_error("error loading CP/M-86 CMD file.\n");
+    }
+    else if(!dos_load_exe(f, psp_mcb))
         print_error("error loading EXE/COM file.\n");
     fclose(f);
 
-    // Init DTA
-    dosDTA = get_current_PSP() * 16 + 0x80;
+    // Init DTA.  For CP/M-86 the loader already aimed the DTA at the program's
+    // base page (the default DMA buffer at 0x80); that page is separate from the
+    // DOS PSP, so don't clobber it here or directory searches land in the wrong place.
+    if(!cpm86_active)
+        dosDTA = get_current_PSP() * 16 + 0x80;
 
     // Init DOS flags
     cpuSetStartupFlag(cpuFlag_IF);

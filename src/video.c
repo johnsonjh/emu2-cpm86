@@ -640,6 +640,95 @@ void video_putch(char ch)
     video_putchar(ch, 0xFF00, vid_page);
 }
 
+// --- Text-screen access for the VT52 console layer (cpm86_vt52.c) ----------
+void video_get_cursor(unsigned *x, unsigned *y)
+{
+    if(!video_initialized)
+        init_video();
+    reload_posxy(vid_page);
+    *x = vid_posx[vid_page];
+    *y = vid_posy[vid_page];
+}
+
+void video_set_cursor(unsigned x, unsigned y)
+{
+    if(!video_initialized)
+        init_video();
+    if(vid_sx && x >= vid_sx)
+        x = vid_sx - 1;
+    if(vid_sy && y >= vid_sy)
+        y = vid_sy - 1;
+    vid_posx[vid_page] = x;
+    vid_posy[vid_page] = y;
+    update_posxy_page(vid_page);
+}
+
+void video_get_size(unsigned *cols, unsigned *rows)
+{
+    if(!video_initialized)
+        init_video();
+    *cols = vid_sx;
+    *rows = vid_sy;
+}
+
+void video_erase_eol(void)
+{
+    if(!video_initialized)
+        init_video();
+    int page = vid_page;
+    for(unsigned x = vid_posx[page]; x < vid_sx; x++)
+        set_xy_full(x, vid_posy[page], 0x20, vid_color, page);
+}
+
+void video_erase_eos(void)
+{
+    if(!video_initialized)
+        init_video();
+    int page = vid_page;
+    for(unsigned x = vid_posx[page]; x < vid_sx; x++)
+        set_xy_full(x, vid_posy[page], 0x20, vid_color, page);
+    for(unsigned y = vid_posy[page] + 1; y < vid_sy; y++)
+        for(unsigned x = 0; x < vid_sx; x++)
+            set_xy_full(x, y, 0x20, vid_color, page);
+}
+
+void video_reverse_lf(void)
+{
+    if(!video_initialized)
+        init_video();
+    int page = vid_page;
+    if(vid_posy[page] > 0)
+        vid_posy[page]--;
+    else
+        vid_scroll_dwn(0, 0, vid_sx - 1, vid_sy - 1, 1, page);
+    update_posxy_page(page);
+}
+
+uint8_t video_get_attr(void)
+{
+    return vid_color;
+}
+
+void video_set_attr(uint8_t attr)
+{
+    if(!video_initialized)
+        init_video();
+    vid_color = attr;
+}
+
+void video_clear_screen(void)
+{
+    if(!video_initialized)
+        init_video();
+    int page = vid_page;
+    for(unsigned y = 0; y < vid_sy; y++)
+        for(unsigned x = 0; x < vid_sx; x++)
+            set_xy_full(x, y, 0x20, vid_color, page);
+    vid_posx[page] = 0;
+    vid_posy[page] = 0;
+    update_posxy_page(page);
+}
+
 // VIDEO int
 void intr10(void)
 {

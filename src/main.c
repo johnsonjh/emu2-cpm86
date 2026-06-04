@@ -1,6 +1,7 @@
 
 #define _GNU_SOURCE
 
+#include "cpm86.h"
 #include "dbg.h"
 #include "dos.h"
 #include "dosnames.h"
@@ -27,6 +28,9 @@ uint8_t read_port(unsigned port)
     {
         static int retrace = 0;
         retrace++;
+        // Trace: TED's write_screen polls this before every char it draws to
+        // video RAM, so a burst of these after a keystroke means its redraw ran.
+        debug(debug_int, "\tport 3DA read (CGA retrace poll)\n");
         return (retrace >> 1) & 0x09;
     }
     else if(port == 0x3D4 || port == 0x3D5)
@@ -134,7 +138,12 @@ void bios_routine(unsigned inum)
                     memory[cpuGetAddress(cs, ip)], cs, ip);
     }
     else if(inum == 0x28)
-        intr28();
+    {
+        if(cpm86_active)
+            intr_cpm_int28(); // CP/M-86 keyboard-poll interface
+        else
+            intr28();
+    }
     else if(inum == 0x25)
         intr25();
     else if(inum == 0x29)
@@ -143,6 +152,8 @@ void bios_routine(unsigned inum)
         intr2a();
     else if(inum == 0x2f)
         intr2f();
+    else if(inum == 0xE0 || inum == 0xE1) // CP/M-86 BDOS entry
+        intr_cpm_bdos();
     else if(inum == 0x8)
         ; // Timer interrupt - nothing to do
     else if(inum == 0x9)

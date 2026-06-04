@@ -12,7 +12,7 @@ char *prog_name;
 
 void print_version(void)
 {
-    printf("EMU2 - Simple x86 + DOS Emulator, version " EMU2_VERSION
+    printf("EMU2 - Simple x86 + DOS and CP/M-86 Emulator, version " EMU2_VERSION
 #ifdef __DATE__
            "  (Compiled " __DATE__ ")"
 #endif
@@ -45,9 +45,22 @@ NORETURN void print_usage(void)
            "  %-18s  Limit DOS memory to 512KB, fixes some old buggy programs.\n"
            "  %-18s  Specifies a DOS append paths, separated by ';'.\n"
            "  %-18s  Set version of DOS to emulate, e.g. '2.11', '3.20', etc.\n"
-           "  %-18s  Setup text mode with given number of rows, from 12 to 50.\n",
+           "  %-18s  Setup text mode with given number of rows, from 12 to 50.\n"
+           "  %-18s  CP/M-86 disk block size: auto|1k|2k|4k|8k|16k (per drive\n"
+           "\t\t      with EMU2_CPM_DISK_<letter>).\n"
+           "  %-18s  CP/M-86 auto-disk target free-space percent (default 25).\n"
+           "  %-18s  CP/M-86 CP/M-3 limits: 2048 extents / 32MB files / 512MB.\n"
+           "  %-18s  CP/M-86 reported version, e.g. '3.1' (default) or '2.2'.\n"
+           "\t\t      3.0+ enables the last-record byte count for exact sizes.\n"
+           "  %-18s  Keep CP/M-86 output padded to 128-byte records: report the\n"
+           "\t\t      LRBC byte count but do not trim host files to it.\n"
+           "  %-18s  Use the ISX last-record byte count convention (unused bytes)\n"
+           "\t\t      instead of DOS Plus (used bytes); default off (DOS Plus).\n"
+           "  %-18s  CP/M-86 console emulation (VT52/colour); set 0 to disable.\n",
            prog_name, ENV_DBG_NAME, ENV_DBG_OPT, ENV_PROGNAME, ENV_DEF_DRIVE, ENV_CWD,
-           ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_APPEND, ENV_DOSVER, ENV_ROWS);
+           ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_APPEND, ENV_DOSVER, ENV_ROWS,
+           "EMU2_CPM_DISK", "EMU2_CPM_FREE", "EMU2_CPM_PLUS", ENV_CPMVER,
+           ENV_LRBC_NOTRUNC, ENV_CPM_ISXLRBC, "EMU2_VT52");
     exit(EXIT_SUCCESS);
 }
 
