@@ -4,6 +4,10 @@ EMU2-CPM86: A simple text-mode x86 + DOS and CP/M-86 emulator
 This is a DOS and CP/M-86 emulator for the console,
 supporting basic DOS and CP/M-86 system calls and console I/O.
 
+It is a (*hopefully temporary*) fork of the excellent `emu2`
+emulator available from [https://github.com/dmsc/emu2](https://github.com/dmsc/emu2)
+and made available under the terms of the [GPL-v2.0 license](LICENSE).
+
 Using the emulator
 ------------------
 
