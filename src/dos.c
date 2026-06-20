@@ -364,7 +364,7 @@ int dos_chmod_fcb(int fcb_addr, int make_readonly)
         else
         {
             int saved_errno = errno;
-            struct stat st; /* codeql-suppress[cpp/toctou] */
+            struct stat st;
             if(0 == stat(fname, &st))
             {
                 mode_t m = st.st_mode;
@@ -372,6 +372,7 @@ int dos_chmod_fcb(int fcb_addr, int make_readonly)
                     m &= ~(mode_t)(S_IWUSR | S_IWGRP | S_IWOTH);
                 else
                     m |= S_IWUSR;
+		/* codeql-suppress[cpp/toctou] */
                 ok = (0 == chmod(fname, m));
             }
             errno = saved_errno;
