@@ -346,15 +346,20 @@ int dos_chmod_fcb(int fcb_addr, int make_readonly)
     int ok = 0;
     if(fname)
     {
-        struct stat st;
-        if(0 == stat(fname, &st))
+        int fd = open(fname, O_RDONLY);
+        if(fd >= 0)
         {
-            mode_t m = st.st_mode;
-            if(make_readonly)
-                m &= ~(mode_t)(S_IWUSR | S_IWGRP | S_IWOTH);
-            else
-                m |= S_IWUSR;
-            ok = (0 == chmod(fname, m));
+            struct stat st;
+            if(0 == fstat(fd, &st))
+            {
+                mode_t m = st.st_mode;
+                if(make_readonly)
+                    m &= ~(mode_t)(S_IWUSR | S_IWGRP | S_IWOTH);
+                else
+                    m |= S_IWUSR;
+                ok = (0 == fchmod(fd, m));
+            }
+            close(fd);
         }
         free(fname);
     }
