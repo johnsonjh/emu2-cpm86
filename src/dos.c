@@ -372,7 +372,7 @@ int dos_chmod_fcb(int fcb_addr, int make_readonly)
                     m &= ~(mode_t)(S_IWUSR | S_IWGRP | S_IWOTH);
                 else
                     m |= S_IWUSR;
-		/* codeql-suppress[cpp/toctou] */
+                // codeql[cpp/toctou-race-condition]
                 ok = (0 == chmod(fname, m));
             }
             errno = saved_errno;
