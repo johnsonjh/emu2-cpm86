@@ -69,23 +69,26 @@ static void cpm_set_dta(void); // defined below; used by the loader
 // Reported CP/M version (BDOS function 12).  The low byte holds the version as
 // packed nibbles (0x22 = 2.2, 0x31 = 3.1); the high byte is the system type
 // (0 = plain CP/M).  CP/M 3.0 and later maintain the last-record byte count
-// (LRBC) in the directory/FCB S1 field, letting programs recover exact file
-// lengths instead of rounding up to the 128-byte record; older programs that
-// check for 2.2 ignore S1, so the metadata is only exposed when we report 3.0+.
+// (LRBC) at FCB+32 (FCB+0x20), letting programs recover exact file lengths
+// instead of rounding up to the 128-byte record.  On open (BDOS 15) the caller
+// signals interest by pre-setting FCB+32 to 0xFF; the BDOS replaces it with the
+// actual count.  Search results (BDOS 17/18) also carry the LRBC at ENTRY+13
+// (S1) of each fabricated directory entry.  Older programs that check for 2.2
+// leave FCB+32 alone, so the metadata is only exposed when we report 3.0+.
 // Default is CP/M 3.1; override with EMU2_CPMVER (e.g. "2.2", "3.1").
 static uint16_t cpm_version = 0x0031; // packed BDOS version, 0x31 = CP/M 3.1
 static int cpm_lrbc = 1;              // expose LRBC byte-count metadata (CP/M 3+)
 static int cpm_lrbc_trunc = 1;        // also trim host files to the LRBC length
-static int cpm_lrbc_isx = 0;          // S1 holds UNUSED (ISX) vs USED (DOS Plus) bytes
+static int cpm_lrbc_isx = 0;          // LRBC: UNUSED (ISX) vs USED (DOS Plus) bytes
 
-// The S1 byte that carries an exact file's last-record byte count has no
+// The LRBC byte that carries an exact file's last-record byte count has no
 // universally agreed meaning; two conventions exist (see EMU2_CPM_ISXLRBC):
-//   DOS Plus (default): S1 = bytes USED in the last record (size mod 128).
-//   ISX:                S1 = bytes UNUSED in the last record (128 - that).
-// In both, S1 == 0 means the file fills its last record exactly (no partial
+//   DOS Plus (default): LRBC = bytes USED in the last record (size mod 128).
+//   ISX:                LRBC = bytes UNUSED in the last record (128 - that).
+// In both, LRBC == 0 means the file fills its last record exactly (no partial
 // tail), so a multiple-of-128 size always encodes as 0 either way.
 
-// Encode an exact file size's last-record byte count into the S1 field.
+// Encode an exact file size's last-record byte count (for FCB+32 or ENTRY+13).
 static uint8_t cpm_lrbc_encode(unsigned long size)
 {
     unsigned used = (unsigned)(size & 0x7F); // 0 = the file fills its last record
@@ -94,14 +97,14 @@ static uint8_t cpm_lrbc_encode(unsigned long size)
     return (uint8_t)used;                      // used bytes
 }
 
-// Recover the exact file length from a record-rounded size `sz` and an S1 byte
-// count `s1` (caller guarantees s1 != 0, i.e. a genuine partial last record).
-static unsigned long cpm_lrbc_exact(unsigned long sz, unsigned s1)
+// Recover the exact file length from a record-rounded size `sz` and an LRBC byte
+// `lrbc` (caller guarantees lrbc != 0, i.e. a genuine partial last record).
+static unsigned long cpm_lrbc_exact(unsigned long sz, unsigned lrbc)
 {
     unsigned long recs = (sz + 127) / 128;
     if(cpm_lrbc_isx)
-        return recs * 128 - s1;       // s1 = unused bytes in the last record
-    return (recs - 1) * 128 + s1;     // s1 = used bytes in the last record
+        return recs * 128 - lrbc;       // lrbc = unused bytes in the last record
+    return (recs - 1) * 128 + lrbc;     // lrbc = used bytes in the last record
 }
 
 // Parse EMU2_CPMVER ("3.1", "2.2", "3", ...) into the reported BDOS version and
@@ -656,10 +659,11 @@ static unsigned bdos_read(unsigned ah)
 // CP/M sequential read/write (BDOS 20/21).  Byte 0x0D of the FCB is S1, which
 // CP/M reserves and the application must not rely on -- but emu2's DOS layer
 // derives the sequential block number from the 16-bit field at 0x0C (EX | S1<<8).
-// Some CP/M programs (e.g. VEDIT PLUS) leave a value in S1 -- the last-record
-// byte count -- which would make the block number huge and seek past EOF, so the
-// first read returns no data and the program treats the file as empty.  Clear S1
-// before delegating so only EX (byte 0x0C) drives the file position.
+// Some CP/M programs (e.g. VEDIT PLUS) inadvertently leave a stale value in S1
+// which would make the block number huge and seek past EOF so the first read
+// returns no data and the program treats the file as empty.  Clear S1 before
+// delegating so only EX (byte 0x0C) drives the file position.  (The LRBC now
+// lives at FCB+32 / 0x20, not in S1, so this clear does not discard LRBC data.)
 static unsigned bdos_seq(unsigned ah)
 {
     memory[cpuGetAddrDS(cpuGetDX()) + 0x0D] = 0;
@@ -990,17 +994,20 @@ void intr_cpm_bdos(void)
     // descend from CP/M), so each maps to the matching DOS INT 21h function.
     case 13: bdos_ret(bdos_via_dos(0x0D)); break; // reset disk system
     case 14: bdos_ret(bdos_via_dos(0x0E)); break; // select disk
-    case 16: // close file.  CP/M 3 LRBC: if the program left a partial last-
-    {        // record byte count in S1, trim the host file to that exact length
-             // before closing so its on-disk size is no longer record-rounded.
+    case 16: // close file.  CP/M 3 LRBC: if the program stored a partial last-
+    {        // record byte count at FCB+32 (FCB+0x20), trim the host file to
+             // that exact length before closing so its on-disk size is no longer
+             // record-rounded.  Per CP/M 3 / DOS Plus, the LRBC lives at FCB+32,
+             // NOT in S1 (FCB+13); programs must reset FCB+32 to 0 before
+             // sequential I/O (the open handler only fills it, never clears it).
         if(cpm_lrbc_trunc)
         {
             uint32_t fcb = cpuGetAddrDS(dx);
-            unsigned s1 = memory[fcb + 0x0D] & 0x7F; // 0 = full last record
+            unsigned lrbc = memory[fcb + 0x20] & 0x7F; // FCB+32; 0 = full last record
             unsigned long sz = get32(fcb + 0x10);
-            if(s1 && sz)
+            if(lrbc && sz)
             {
-                unsigned long exact = cpm_lrbc_exact(sz, s1);
+                unsigned long exact = cpm_lrbc_exact(sz, lrbc);
                 if(exact < sz)
                     dos_truncate_fcb(fcb, exact);
             }
@@ -1144,18 +1151,24 @@ void intr_cpm_bdos(void)
         break;
     }
 
-    case 15: // open file (+ CP/M-3 LRBC byte count in the S1 field)
+    case 15: // open file (+ CP/M-3 LRBC byte count at FCB+32)
     {
         uint32_t fcb = cpuGetAddrDS(dx);
+        // Snapshot FCB+32 BEFORE calling the DOS open handler: dos.c zeroes
+        // FCB+32 (the "current record" field) during open, so we must capture
+        // the caller's 0xFF signal before it is overwritten.
+        unsigned want_lrbc = cpm_lrbc && (memory[fcb + 0x20] == 0xFF);
         unsigned r = bdos_via_dos(0x0F);
-        // S1 (fcb[13]) = the last-record byte count (used or unused bytes per
-        // the active convention; 0 = a full 128-byte record).  Only CP/M 3.0+
-        // programs read this field; under 2.2 S1 is reserved and must stay 0,
-        // so only fill it when LRBC is enabled.
-        if(r != 0xFF && cpm_lrbc)
+        // Per CP/M 3 / DOS Plus: FCB+32 (FCB+0x20) carries the last-record byte
+        // count (LRBC).  On open, the caller signals it wants the LRBC by
+        // pre-setting FCB+32 to 0xFF; we then replace it with the actual count.
+        // If FCB+32 was not 0xFF the program does not want LRBC, so leave it at 0.
+        // The LRBC does NOT go in S1 (FCB+13); that field drives the sequential
+        // block number and must remain 0 for normal I/O.
+        if(r != 0xFF && want_lrbc)
         {
             unsigned long sz = get32(fcb + 0x10);
-            memory[fcb + 0x0D] = cpm_lrbc_encode(sz);
+            memory[fcb + 0x20] = cpm_lrbc_encode(sz);
         }
         bdos_ret(r);
         break;

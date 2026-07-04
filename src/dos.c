@@ -445,10 +445,10 @@ static void dos_open_file_fcb(int create)
 
 // CP/M 3 LRBC: trim the host file behind an open FCB to `length` bytes, so an
 // exact (not record-rounded) length survives on the host disk -- emu2 derives a
-// file's reported size and S1 byte count straight from its host length.  Only
+// file's reported size and LRBC byte count straight from its host length.  Only
 // an *unwritten* handle is trimmed: that marks a deliberate metadata update (as
 // lzpack does -- write and close via one handle, then re-open just to stamp the
-// S1 byte count), never an S1 left stale by an extending random write.  Returns
+// FCB+32 byte count), never an LRBC left stale by an extending random write.  Returns
 // 0 if it trimmed the file, -1 otherwise.
 int dos_truncate_fcb(int fcb_addr, unsigned long length)
 {
