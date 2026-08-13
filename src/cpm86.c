@@ -61,6 +61,9 @@ int cpm86_active = 0;
 
 // Parsed program image (segments are emu2 paragraph addresses).
 static uint16_t cpm_code_seg, cpm_data_seg, cpm_base_seg;
+// Extra/stack segments of the currently-loaded program (0 = none), so BDOS 47
+// (Chain To Program) can free them before loading the next program.
+static uint16_t cpm_extra_seg, cpm_stack_seg;
 // CP/M-86 DMA (disk transfer) address is segment:offset: BDOS 26 sets the
 // offset, BDOS 51 the segment.  Defaults to base page 0x80.
 static uint16_t cpm_dma_seg, cpm_dma_off;
@@ -655,6 +658,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
           model_8080 ? "8080" : "small");
     cpm_init_version();
     cpm86_active = 1;
+    cpm_extra_seg = extra_seg;
+    cpm_stack_seg = stack_seg;
     return 1;
 }
 
@@ -962,6 +967,102 @@ static unsigned cpm_parse_fcb(unsigned dx)
         return 0;
     return (uint16_t)(sptr + i);
 #undef CPM_IN
+}
+
+// BDOS 47 (P_CHAIN, "Chain To Program"): load and run the program named in the
+// default DMA buffer, reusing the current PSP.  Multi-pass tools chain this way
+// (e.g. a compiler driver -> "R PASS2" -> ... -> LINK86), so without it only the
+// first program runs.  The command is a raw null/CR-terminated console-style line
+// (NOT the CCP length-prefixed form).  Returns 1 if a program was loaded, 0 if
+// the command was empty or the program was not found (caller then terminates).
+static int cpm_chain(void)
+{
+    uint32_t dma = (uint32_t)cpm_dma_seg * 16 + cpm_dma_off;
+    char cmd[130];
+    unsigned n = 0;
+
+    for(unsigned i = 0; i < 128 && n < sizeof(cmd) - 1; i++)
+    {
+        uint8_t c = memory[(dma + i) & 0xFFFFF];
+        if(c == 0 || c == '\r')
+            break;
+        cmd[n++] = (char)c;
+    }
+    cmd[n] = 0;
+    debug(debug_dos, "CP/M BDOS 47 (chain): command=\"%s\"\n", cmd);
+
+    // Parse "[drive:] prog [tail]".  Strip a leading standalone "R" token (DR's
+    // "run" loader, which itself uses BDOS 59): func 47 already does load+run.
+    char *p = cmd;
+    char prog[64];
+    unsigned pn;
+    for(;;)
+    {
+        while(*p == ' ')
+            p++;
+        if(p[0] && p[1] == ':')
+            p += 2;
+        pn = 0;
+        while(*p && *p != ' ' && pn < sizeof(prog) - 5)
+            prog[pn++] = *p++;
+        prog[pn] = 0;
+        while(*p == ' ')
+            p++;
+        if(pn == 1 && (prog[0] == 'R' || prog[0] == 'r') && *p)
+            continue;
+        break;
+    }
+    const char *tail = p;
+    if(pn == 0)
+        return 0;
+
+    // Open <prog> then <prog>.CMD from the current host drive.
+    FILE *f = fopen(prog, "rb");
+    if(!f)
+    {
+        char withext[70];
+        snprintf(withext, sizeof(withext), "%s.CMD", prog);
+        f = fopen(withext, "rb");
+    }
+    if(!f)
+    {
+        debug(debug_dos, "CP/M chain: program \"%s\" not found\n", prog);
+        return 0;
+    }
+
+    // Free the outgoing program's memory before loading the next pass, else a
+    // deep chain leaks ~64K/pass.  (In the 8080 model base aliases data==code.)
+    if(cpm_extra_seg)
+        mem_free_segment(cpm_extra_seg);
+    if(cpm_stack_seg)
+        mem_free_segment(cpm_stack_seg);
+    if(cpm_data_seg && cpm_data_seg != cpm_code_seg)
+        mem_free_segment(cpm_data_seg);
+    if(cpm_code_seg)
+        mem_free_segment(cpm_code_seg);
+    cpm_code_seg = cpm_data_seg = cpm_base_seg = cpm_extra_seg = cpm_stack_seg = 0;
+
+    int ok = cpm86_load_cmd(f, tail);
+    fclose(f);
+    if(!ok)
+    {
+        debug(debug_dos, "CP/M chain: failed to load \"%s\"\n", prog);
+        return 0;
+    }
+
+    // The BDOS entry returns via a trailing IRET (pops IP/CS/FLAGS from SS:SP),
+    // but the loader set CS:IP/SP directly with no frame -- synthesize one so the
+    // IRET lands at the chained program's entry.
+    uint16_t ncs = cpuGetCS(), nip = cpuGetIP(), nsp = cpuGetSP();
+    uint32_t sbase = (uint32_t)cpuGetSS() * 16;
+    nsp -= 2;
+    put16(sbase + nsp, 0x0200); // FLAGS: IF set
+    nsp -= 2;
+    put16(sbase + nsp, ncs);
+    nsp -= 2;
+    put16(sbase + nsp, nip);
+    cpuSetSP(nsp);
+    return 1;
 }
 
 void intr_cpm_bdos(void)
@@ -1289,6 +1390,11 @@ void intr_cpm_bdos(void)
 
     case 152: // F_PARSE: parse a filename from DS:[PFCB] into an FCB (CP/M 3).
         bdos_ret(cpm_parse_fcb(dx));
+        break;
+
+    case 47: // P_CHAIN: Chain To Program
+        if(!cpm_chain())
+            exit(0);
         break;
 
     default:
