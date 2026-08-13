@@ -490,6 +490,35 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
             stack_par = want;
     }
 
+    // Auxiliary groups (CMD types 5..8) map to base-page descriptor slots 4..7
+    // (segment words at offsets 0x1B/0x21/0x27/0x2D).  Relocatable CMDs keep a
+    // self-relocation buffer in an aux group and need its descriptor set, so load
+    // each aux group's image and record its segment for the descriptor loop.
+    uint16_t aux_seg[4] = {0, 0, 0, 0};
+    uint16_t aux_par[4] = {0, 0, 0, 0};
+    for(int i = 0; i < ng; i++)
+    {
+        if(g[i].type < 5 || g[i].type > 8)
+            continue;
+        int slot = g[i].type - 5;
+        uint16_t want = g[i].max > g[i].min ? g[i].max : g[i].min;
+        if(want < g[i].length)
+            want = g[i].length;
+        if(!want)
+            want = 1;
+        uint16_t avail = 0;
+        uint16_t s = mem_alloc_segment(want, &avail);
+        if(!s)
+            return 0;
+        if(g[i].length)
+        {
+            fseek(f, g[i].file_off, SEEK_SET);
+            fread(memory + (uint32_t)s * 16, 1, (uint32_t)g[i].length * 16, f);
+        }
+        aux_seg[slot] = s;
+        aux_par[slot] = want;
+    }
+
     // --- Load group images --------------------------------------------------
     fseek(f, code->file_off, SEEK_SET);
     if(fread(memory + (uint32_t)cpm_code_seg * 16, 1, (uint32_t)code->length * 16, f) == 0)
@@ -548,6 +577,10 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     CPM_GDESC(0x06, sp_top, cpm_data_seg);                  // data group (len = SP top)
     CPM_GDESC(0x0C, (uint32_t)extra_par << 4, extra_seg);   // extra group (0 if none)
     CPM_GDESC(0x12, (uint32_t)stack_par << 4, stack_seg);   // stack group (0 if none)
+    CPM_GDESC(0x18, (uint32_t)aux_par[0] << 4, aux_seg[0]); // aux group 1
+    CPM_GDESC(0x1E, (uint32_t)aux_par[1] << 4, aux_seg[1]); // aux group 2
+    CPM_GDESC(0x24, (uint32_t)aux_par[2] << 4, aux_seg[2]); // aux group 3
+    CPM_GDESC(0x2A, (uint32_t)aux_par[3] << 4, aux_seg[3]); // aux group 4
 #undef CPM_GDESC
 
     // Command tail at base page 0x80: <len><chars><CR>.  Like the CP/M CCP,
