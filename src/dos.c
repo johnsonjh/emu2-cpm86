@@ -561,6 +561,16 @@ static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
     if(write)
         handle_written[get_fcb_handle()] = 1;
     unsigned n = write ? fwrite(buf, 1, rsize, f) : fread(buf, 1, rsize, f);
+    // Real CP/M-86 random writes are write-through to disk sectors: another
+    // open FCB (or fn 0x23 GET FILE SIZE, which stat()s the host file by name)
+    // sees the new data immediately. emu2 backs each handle with a buffered
+    // stdio FILE*, so without this flush a just-written record would sit in this
+    // handle's buffer, invisible to stat() and to a second handle's read -- which
+    // breaks legitimate cross-handle patterns (e.g. Watcom's streamio "flushes"
+    // test: one "w" handle + one "r" handle on the same file, the reader must see
+    // a byte the writer fflush()ed). Flushing here restores real write-through.
+    if(write && n)
+        fflush(f);
     // Update random and block positions
     if(update)
     {
