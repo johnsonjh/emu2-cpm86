@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 
 #include "dosnames.h"
+#include "cpm86.h"
 #include "dbg.h"
 #include "emu.h"
 #include "env.h"
@@ -647,6 +648,12 @@ char *dos_unix_path_fcb(int addr, int force, const char *append)
     }
     // And copy file name
     char *fcb_name = getstr(addr + 1, 11);
+    // CP/M-86 carries "interface attributes" in bit 7 of the 8 name + 3 type
+    // bytes of an FCB; they are not part of the name.  Mask them off, or tools
+    // that set them (e.g. DR C) get truncated names ("SRCFILE" -> "SRCFI").
+    if(cpm86_active)
+        for(int i = 0; i < 11; i++)
+            fcb_name[i] &= 0x7F;
     debug(debug_dos, "\tconvert dos fcb name %c:'%s'\n", drive + 'A', fcb_name);
 
     // Build filename from FCB
