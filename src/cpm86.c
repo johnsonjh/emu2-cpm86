@@ -1171,6 +1171,33 @@ void intr_cpm_bdos(void)
     unsigned func = cpuGetCX() & 0xFF;
     unsigned dx = cpuGetDX();
 
+    // Per the CP/M-86 System Guide S4.1: "All segment registers, except ES, are
+    // saved upon entry and restored upon exit from the BDOS (corresponding to
+    // PL/M-86 conventions)." PL/M-86 additionally preserves SI, DI and BP; only
+    // AX, BX, CX, DX and ES are scratch/return registers. emu2 delegates most
+    // functions to its INT 21h (DOS) handlers via bdos_via_dos()/intr21(), which
+    // freely clobber the host SI/DI/BP/DS/SS -- registers a real CP/M-86 BDOS
+    // leaves untouched. Snapshot them here and restore below so a caller whose
+    // string/loop pointer lives in SI (e.g. `while(*s) conout(*s++)`) is not
+    // corrupted. Without this, only the FIRST char of each such loop printed.
+    // ES is deliberately NOT saved (functions 31/table lookups return in ES:BX).
+    unsigned saved_si = cpuGetSI(), saved_di = cpuGetDI(), saved_bp = cpuGetBP();
+    unsigned saved_ds = cpuGetDS(), saved_ss = cpuGetSS();
+    // AX/BX are the BDOS *return* registers, but only for functions that return
+    // a value: "Single byte values are returned in AL, word values in both AX and
+    // BX" (System Guide S4.1). Functions that return NOTHING -- console output (2),
+    // print $-string (9), and the output sub-function of Direct Console I/O (6,
+    // DL<0FDh) -- leave AX/BX untouched on real CP/M-86. emu2 wraps every case in
+    // bdos_ret(), which writes both AX and BX unconditionally, clobbering a
+    // caller's BX. Watcom's `puts_n` keeps its string pointer in BX across the
+    // `int 0E0h` (verified: `mov bx,ax; L: mov al,[bx]; ...; int 0E0h; inc bx`),
+    // so the old emu2 destroyed it after the FIRST char and printed only "P" of
+    // "PASS...". Snapshot AX/BX and restore them for these no-return functions.
+    unsigned saved_ax = cpuGetAX(), saved_bx = cpuGetBX();
+    unsigned saved_cx = cpuGetCX(), saved_dx = cpuGetDX();
+    int no_return = (func == 2) || (func == 9) ||
+                    (func == 6 && (dx & 0xFF) < 0xFD);
+
     switch(func)
     {
     case 0:   // System Reset / program termination
@@ -1502,6 +1529,31 @@ void intr_cpm_bdos(void)
         debug(debug_dos, "CP/M BDOS %u: UNIMPLEMENTED (DX=%04x)\n", func, dx);
         bdos_ret(0xFF); // 0xFF = error / not found for most file funcs
         break;
+    }
+
+    // Restore the registers a real CP/M-86 BDOS preserves (see the entry note):
+    // SI, DI, BP and the DS/SS segment registers. ES is left as the handler set
+    // it (double-word returns come back in ES:BX). P_CHAIN (47) is exempt: it
+    // does NOT return to the caller -- it loads a new program and set up that
+    // program's own CS/DS/SS/IP, which we must not overwrite.
+    if(func != 47)
+    {
+        cpuSetSI(saved_si);
+        cpuSetDI(saved_di);
+        cpuSetBP(saved_bp);
+        cpuSetDS(saved_ds);
+        cpuSetSS(saved_ss);
+        // No-value functions (console output 2/9, direct-console output 6)
+        // return nothing, so a real BDOS leaves ALL caller registers intact
+        // (Watcom's conout binding declares `modify [cl]` only). Undo the
+        // bdos_ret()/intr21() clobber of AX/BX/CX/DX for them.
+        if(no_return)
+        {
+            cpuSetAX(saved_ax);
+            cpuSetBX(saved_bx);
+            cpuSetCX(saved_cx);
+            cpuSetDX(saved_dx);
+        }
     }
 }
 
