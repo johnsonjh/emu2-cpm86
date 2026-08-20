@@ -582,6 +582,67 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         }
     }
 
+    // --- Load-time relocation ("P_LOAD" fixups) -----------------------------
+    // A wlink `format cpm86` compact-model .CMD (near DGROUP + far data in a
+    // type-3 EXTRA group, and/or medium-model far code) carries a P_LOAD fixup
+    // table: header byte 0x7F bit 7 set, header word 0x7D = ch_fixrec (the file
+    // RECORD number, *128 = byte offset, of a packed array of 4-byte records
+    // ending at the first all-zero record).  Each record patches one 16-bit
+    // SEGMENT word that the linker left as a group-relative paragraph; the
+    // loader ADDS the target group's runtime load segment.  Without this an
+    // EXTRA-group far pointer (e.g. INFO-Zip UnZip's far strings) or a far code
+    // seg is left pointing at paragraph 0 and the program reads garbage.
+    // Faithful port of the genuine CCP/M-86 2.0 loader (load.sup:402-449) and
+    // of cpm86run_unicorn.py _apply_fixups; see reference_cpm86_cmd_header_
+    // ccpm_source.md + reference_wlink_cpm86_far_data_type3.md.
+    //   byte0 = (loc_grp<<4)|tgt_grp  group NUMBERs (1=CODE 2=DATA 3=EXTRA
+    //                                 4=STACK, 5..8=AUX)
+    //   byte1-2 = paragraph of the word within its LOCATION group (LE)
+    //   byte3 = byte offset 0..15 of the word within that paragraph
+    if(hdr[0x7F] & 0x80)
+    {
+        uint16_t grp_seg[9] = {0};
+        grp_seg[GT_CODE]  = cpm_code_seg;
+        grp_seg[GT_DATA]  = data ? cpm_data_seg : 0;
+        grp_seg[GT_EXTRA] = extra_seg;
+        grp_seg[GT_STACK] = stack_seg;
+        grp_seg[5] = aux_seg[0];
+        grp_seg[6] = aux_seg[1];
+        grp_seg[7] = aux_seg[2];
+        grp_seg[8] = aux_seg[3];
+
+        uint32_t fixrec = (uint32_t)hdr[0x7D] | ((uint32_t)hdr[0x7E] << 8);
+        uint32_t pos = fixrec * 128;
+        unsigned applied = 0;
+        for(;;)
+        {
+            uint8_t rec[4];
+            if(fseek(f, pos, SEEK_SET) != 0 || fread(rec, 1, 4, f) != 4)
+                break;
+            if(rec[0] == 0 && rec[1] == 0 && rec[2] == 0 && rec[3] == 0)
+                break; // table ends at the first all-zero record
+            unsigned loc_grp = (rec[0] >> 4) & 0x0F;
+            unsigned tgt_grp = rec[0] & 0x0F;
+            uint16_t para = (uint16_t)(rec[1] | (rec[2] << 8));
+            uint8_t offs = rec[3] & 0x0F;
+            if(loc_grp > 8 || tgt_grp > 8 || grp_seg[loc_grp] == 0 ||
+               (grp_seg[tgt_grp] == 0 && tgt_grp != 0))
+            {
+                debug(debug_dos,
+                      "CP/M-86 load: fixup #%u names undefined group "
+                      "(byte 0x%02x) -- skipped\n",
+                      applied, rec[0]);
+                pos += 4;
+                continue;
+            }
+            uint32_t addr = ((uint32_t)(grp_seg[loc_grp] + para) << 4) + offs;
+            put16(addr, (get16(addr) + grp_seg[tgt_grp]) & 0xFFFF);
+            applied++;
+            pos += 4;
+        }
+        debug(debug_dos, "CP/M-86 load: applied %u load-time fixup(s)\n", applied);
+    }
+
     // --- Base page (256 bytes at DS:0) --------------------------------------
     // CP/M-86 lays out the base page as 6-byte group descriptors, one per group
     // in the order code, data, extra, stack (then auxiliary groups):
