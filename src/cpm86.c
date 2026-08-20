@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
 #include <time.h>
 #include <poll.h>
 #include <unistd.h>
@@ -1065,6 +1066,54 @@ static int cpm_chain(void)
     return 1;
 }
 
+// Deterministic emulated wall clock for the CP/M-86 BDOS time functions.
+// Absolute time = the host wall clock captured once at first use (so DATE.CMD
+// shows the real current date) PLUS the emulated seconds elapsed since, derived
+// from the monotonic instruction counter: seconds = instructions / CLOCK_HZ.
+// This makes a self-timing benchmark's elapsed *differences* proportional to
+// the work the emulated 8086 does and fully reproducible, instead of tracking
+// the host wall clock (which barely advances while emu2 races through the whole
+// benchmark in a fraction of a real second).  Tune the rate with the env var
+// EMU2_CPM86_CLOCK_HZ (instructions per emulated second; default 300000).
+static uint64_t cpm_clock_hz(void)
+{
+    static uint64_t hz = 0;
+    if(!hz)
+    {
+        const char *e = getenv("EMU2_CPM86_CLOCK_HZ");
+        long v = e ? strtol(e, 0, 0) : 0;
+        hz = (v > 0) ? (uint64_t)v : 300000;
+    }
+    return hz;
+}
+
+// Fill the CP/M-86 DAT (date-and-time) structure at DS:dx with the current
+// emulated time and return the seconds as a BCD byte (for AL).  When
+// with_seconds is true (T_SECONDS, fn 155) the seconds are ALSO stored at
+// DAT offset 4; T_GET (fn 105) leaves offset 4 untouched.
+static uint8_t cpm_fill_tod(unsigned dx, int with_seconds)
+{
+    static time_t base = 0;
+    if(!base)
+        base = time(0);
+    time_t now = base + (time_t)(cpuGetInstructionCount() / cpm_clock_hz());
+    struct tm *lt = localtime(&now);
+    struct tm epoch = {.tm_year = 78, .tm_mon = 0, .tm_mday = 1, .tm_hour = 12};
+    long days = (long)(difftime(now, mktime(&epoch)) / 86400) + 1;
+    uint8_t bcd_sec = ((lt->tm_sec / 10) << 4) | (lt->tm_sec % 10);
+    uint32_t dat = cpuGetAddrDS(dx);
+    memory[dat] = days & 0xFF;
+    memory[dat + 1] = (days >> 8) & 0xFF;
+    memory[dat + 2] = ((lt->tm_hour / 10) << 4) | (lt->tm_hour % 10);
+    memory[dat + 3] = ((lt->tm_min / 10) << 4) | (lt->tm_min % 10);
+    if(with_seconds)
+        memory[dat + 4] = bcd_sec;
+    debug(debug_dos, "CP/M %s: day %ld %02d:%02d:%02d (ins=%" PRIu64 ")\n",
+          with_seconds ? "T_SECONDS" : "get date/time", days, lt->tm_hour,
+          lt->tm_min, lt->tm_sec, cpuGetInstructionCount());
+    return bcd_sec;
+}
+
 void intr_cpm_bdos(void)
 {
     unsigned func = cpuGetCX() & 0xFF;
@@ -1370,23 +1419,23 @@ void intr_cpm_bdos(void)
         cpuSetCX(3);
         break;
 
-    case 105: // T_GET: Get Date and Time -> fills DAT at DS:DX, AL = seconds (BCD)
-    {
-        // DAT structure: word = days since 1978-01-01 (=day 1), byte hour (BCD),
-        // byte minute (BCD); AL returns seconds (BCD).
-        time_t now = time(0);
-        struct tm *lt = localtime(&now);
-        struct tm epoch = {.tm_year = 78, .tm_mon = 0, .tm_mday = 1, .tm_hour = 12};
-        long days = (long)(difftime(now, mktime(&epoch)) / 86400) + 1;
-        uint32_t dat = cpuGetAddrDS(dx);
-        put16(dat, (uint16_t)days);
-        memory[dat + 2] = ((lt->tm_hour / 10) << 4) | (lt->tm_hour % 10);
-        memory[dat + 3] = ((lt->tm_min / 10) << 4) | (lt->tm_min % 10);
-        debug(debug_dos, "CP/M get date/time: day %ld %02d:%02d:%02d\n", days,
-              lt->tm_hour, lt->tm_min, lt->tm_sec);
-        bdos_ret(((lt->tm_sec / 10) << 4) | (lt->tm_sec % 10));
+    case 104: // T_SET: Set Date and Time.  emu2's clock is a deterministic
+        // instruction counter over a wall-clock base, so we accept the call and
+        // succeed (programs must not get an error) but do not retro-set the base.
+        bdos_ret(0);
         break;
-    }
+
+    case 105: // T_GET: Get Date and Time -> fills DAT at DS:DX, AL = seconds (BCD)
+        bdos_ret(cpm_fill_tod(dx, 0));
+        break;
+
+    case 155: // T_SECONDS: like T_GET but ALSO stores BCD seconds at DAT+4.
+        // Concurrent CP/M-86 fn 155 (SUP subfunction 9).  Self-timing programs
+        // (stdcbench's portme.c) read elapsed time from this call's seconds
+        // field; driving it from the deterministic instruction clock gives a
+        // reproducible, work-proportional timer.  AL = seconds (BCD).
+        bdos_ret(cpm_fill_tod(dx, 1));
+        break;
 
     case 152: // F_PARSE: parse a filename from DS:[PFCB] into an FCB (CP/M 3).
         bdos_ret(cpm_parse_fcb(dx));
