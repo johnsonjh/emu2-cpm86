@@ -46,6 +46,21 @@ static unsigned ins_per_ms;
 /* Number of instructions executed in the current time slice */
 static unsigned num_ins_exec;
 
+/* Monotonic count of instructions executed since power-on.  Unlike
+ * num_ins_exec (which is periodically decremented by the ins_per_ms slowdown
+ * throttle), this only ever increases, so it is a deterministic virtual-clock
+ * source: elapsed emulated time = total_instructions / CLOCK_HZ.  The CP/M-86
+ * BDOS time calls (T_GET 105 / T_SECONDS 155) use it so that a self-timing
+ * benchmark sees time advance in proportion to the work the emulated 8086 does,
+ * reproducibly and independently of the host wall clock (which barely moves
+ * when emu2 runs the whole benchmark in a fraction of a real second). */
+static uint64_t total_ins_exec;
+
+uint64_t cpuGetInstructionCount(void)
+{
+    return total_ins_exec;
+}
+
 /* Last time emulator slept */
 static EMU_CLOCK_TYPE next_sleep_time;
 
@@ -2716,6 +2731,7 @@ void execute(void)
             }
         }
         handle_irq();
+        total_ins_exec++;
         // CP/M-86 warm boot: a transfer to code:0000 in the 8080 model terminates
         // the program (it is never reached by normal execution, which enters at
         // 0x100).  This catches the near-RET-to-warm-boot exit idiom that would

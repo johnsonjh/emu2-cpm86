@@ -21,6 +21,10 @@ void bios_routine(unsigned inum);
 
 // CPU interface
 void execute(void); // 1 ins.
+
+// Monotonic count of emulated instructions executed (deterministic virtual
+// clock source for the CP/M-86 BDOS time functions).
+uint64_t cpuGetInstructionCount(void);
 void init_cpu(void);
 
 // async HW update
