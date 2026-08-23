@@ -459,38 +459,93 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
             return 0;
     }
 
-    // Extra (ES) and stack (SS) groups: allocate as much as the program asks
-    // for (up to g_max), falling back to the largest available block, but at
-    // least g_min.  Programs such as ARC86 keep large working buffers (its LZW
-    // table) in the extra group and read its base/length from the base page.
+    // Extra (ES) and stack (SS) groups. FAITHFUL to genuine CCP/M-86 2.0
+    // kern/load.sup: the loader does NOT hand each group its own g_max
+    // independently. It sums every group's min and max, does ONE allocation of
+    // the total bounded by the free TPA (>= total_min or "insufficient memory"),
+    // then SPREADS the actual allocation -- min to everybody first, then the
+    // surplus proportionally among the groups that want more (capped at
+    // max-min). Each group's BASE-PAGE length is that finally-distributed size
+    // (load.sup init_base writes ldt_min after the spread), NOT its raw g_max.
+    //
+    // emu2 used to be too generous: with its ~640K arena it always granted the
+    // full g_max, so a program that assumed the loader pre-reserved its Extra
+    // g_max (e.g. Watcom `option farheap` for a far heap) "worked" here but got
+    // only its share on a real, tighter machine -- Info-ZIP zip's deflate window
+    // alloc fails on the RC759 (293K user memory) yet succeeded under old emu2.
+    // Reproduce the real distribution, bounded by a configurable TPA
+    // (CPM86_TPA_KB, default 293 = the RC759/Piccoline CCP/M-86 3.1 figure), so a
+    // program that passes here is real evidence.  code+data are already placed
+    // above (their required sizes); they are the fixed part of the sum.
     uint16_t extra_seg = 0, extra_par = 0, stack_seg = 0, stack_par = 0;
-    if(extra && extra->min)
     {
-        uint16_t want = extra->max > extra->min ? extra->max : extra->min;
-        uint16_t avail = 0;
-        extra_seg = mem_alloc_segment(want, &avail);
-        if(!extra_seg && avail >= extra->min)
+        unsigned tpa_kb = 293;
+        const char *e = getenv("CPM86_TPA_KB");
+        if(e && *e)
         {
-            uint16_t a2;
-            want = avail;
-            extra_seg = mem_alloc_segment(want, &a2);
+            unsigned v = (unsigned)strtoul(e, 0, 0);
+            if(v)
+                tpa_kb = v;
         }
-        if(extra_seg)
-            extra_par = want;
-    }
-    if(stack && stack->min)
-    {
-        uint16_t want = stack->max > stack->min ? stack->max : stack->min;
-        uint16_t avail = 0;
-        stack_seg = mem_alloc_segment(want, &avail);
-        if(!stack_seg && avail >= stack->min)
+        uint32_t tpa_paras = (uint32_t)tpa_kb * 64;   // 1 KB = 64 paragraphs
+        uint32_t fixed = (uint32_t)code_par + (model_8080 ? 0 : data_par);
+        uint16_t ex_min = extra ? extra->min : 0;
+        uint16_t ex_max = (extra && extra->max > extra->min) ? extra->max : ex_min;
+        uint16_t st_min = stack ? stack->min : 0;
+        uint16_t st_max = (stack && stack->max > stack->min) ? stack->max : st_min;
+        uint32_t total_min = fixed + ex_min + st_min;
+        uint32_t total_max = fixed + ex_max + st_max;
+        // Grant = min(total_max, TPA); a real loader rejects a program whose
+        // minimum does not fit ("Concurrent Fejl: For lidt lager").
+        uint32_t grant = total_max < tpa_paras ? total_max : tpa_paras;
+        if(total_min > tpa_paras)
         {
-            uint16_t a2;
-            want = avail;
-            stack_seg = mem_alloc_segment(want, &a2);
+            debug(debug_dos, "CP/M-86 load: program min %u paras exceeds TPA %u "
+                             "-> insufficient memory\n", (unsigned)total_min,
+                  (unsigned)tpa_paras);
+            return 0;
         }
-        if(stack_seg)
-            stack_par = want;
+        uint32_t surplus = grant - total_min;
+        // Spread the surplus over the groups that want more (max>min), load.sup
+        // style: even share, capped at each group's max-min, iterated.
+        uint16_t ex_par = ex_min, st_par = st_min;
+        int nrels = (ex_max > ex_min) + (st_max > st_min);
+        if(nrels && surplus)
+        {
+            // extra first, then stack (matches descriptor order)
+            if(ex_max > ex_min)
+            {
+                uint32_t share = (surplus + nrels - 1) / nrels; // round up
+                uint32_t room = (uint32_t)(ex_max - ex_min);
+                if(share > room)
+                    share = room;
+                ex_par = ex_min + (uint16_t)share;
+                surplus -= share;
+                nrels--;
+            }
+            if(st_max > st_min && nrels && surplus)
+            {
+                uint32_t share = surplus; // last taker gets the remainder
+                uint32_t room = (uint32_t)(st_max - st_min);
+                if(share > room)
+                    share = room;
+                st_par = st_min + (uint16_t)share;
+            }
+        }
+        if(extra && ex_par)
+        {
+            uint16_t a;
+            extra_seg = mem_alloc_segment(ex_par, &a);
+            if(extra_seg)
+                extra_par = ex_par;
+        }
+        if(stack && st_par)
+        {
+            uint16_t a;
+            stack_seg = mem_alloc_segment(st_par, &a);
+            if(stack_seg)
+                stack_par = st_par;
+        }
     }
 
     // Real CCP/M-86 (Regnecentralen RC759, Piccoline XIOS 3.1, measured on
