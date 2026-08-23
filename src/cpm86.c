@@ -479,7 +479,15 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     // above (their required sizes); they are the fixed part of the sum.
     uint16_t extra_seg = 0, extra_par = 0, stack_seg = 0, stack_par = 0;
     {
-        unsigned tpa_kb = 293;
+        // Default = the RC759's MEASURED effective per-program TPA, not the
+        // 293K "bruger lager" the CCP/M-86 3.1 boot banner reports. The banner
+        // is nominal; multitasking overhead (console buffers, other processes,
+        // loader DMA) leaves ~210K for a transient program's group allocation.
+        // Calibrated so emu2 reproduces the exact real-MAME boundary: the
+        // Info-ZIP zip 48K-farheap build fails "Out of memory (window
+        // allocation)" at <=210K here just as on the physical RC759, and runs at
+        // 215K. Override with CPM86_TPA_KB for a differently-configured machine.
+        unsigned tpa_kb = 210;
         const char *e = getenv("CPM86_TPA_KB");
         if(e && *e)
         {
