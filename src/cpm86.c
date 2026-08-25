@@ -553,8 +553,22 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
             grant = want;
         else if(gotmax >= total_min)
         {
-            grant_seg = mem_alloc_segment(gotmax, &gotmax);
-            grant = gotmax;
+            // mem_alloc_segment's *max output is reset to 0 internally and only
+            // updated on a size-mismatch/failure path -- an EXACT-fit success
+            // (this retry requests precisely `gotmax` paragraphs) leaves it at
+            // 0. Capture the requested amount in its own variable (`retry_par`)
+            // BEFORE the call instead of reading it back out of the same
+            // variable the call just (re)zeroed -- aliasing `gotmax` as both
+            // the request and the result previously made `grant` read back 0,
+            // underflowing `surplus` below and corrupting the Extra group's
+            // declared size (base-page 0x0C) to the full ex_max instead of the
+            // correctly TPA-capped value (found via farheap_smalltest 2026-08-25:
+            // reported "kb=720" static-carve grant from a corrupted ~960K Extra
+            // length, on a pool actually capped to ~210K).
+            uint16_t retry_par = gotmax;
+            uint16_t discard = 0;
+            grant_seg = mem_alloc_segment(retry_par, &discard);
+            grant = retry_par;
         }
         if(!grant_seg)
         {
