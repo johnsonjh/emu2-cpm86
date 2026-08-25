@@ -21,6 +21,17 @@ void intr_cpm_bdos(void);
 // Non-zero while a CP/M-86 program is loaded (vs a DOS program).
 extern int cpm86_active;
 
+// Command-line override (in KB) for the CP/M-86 TPA size, set by main.c's
+// "-m" option (0 = not given; falls back to CPM86_TPA_KB env var, then the
+// built-in default). Read via cpm86_get_tpa_kb().
+extern unsigned cpm86_tpa_kb_cli;
+
+// Single source of truth for the CP/M-86 TPA size in KB: "-m" CLI option >
+// CPM86_TPA_KB env var > built-in default (calibrated to match real MAME).
+// Used both by cpm86_load_cmd()'s group grant and dos.c's init_dos() MCB-pool
+// sizing, so they always agree on the same ceiling.
+unsigned cpm86_get_tpa_kb(void);
+
 // INT 28h handler for CP/M-86 programs: a keyboard-poll interface (DI=4) used by
 // some interpreters (e.g. ZORK).  Invoked from bios_routine() when cpm86_active.
 void intr_cpm_int28(void);
