@@ -553,6 +553,31 @@ void mcb_init(uint16_t mem_start, uint16_t mem_end)
     mcb_new(mem_start, 0, mem_end - mem_start - 1, 1);
 }
 
+// Fill the DATA of every free MCB with a poison byte, leaving the 1-paragraph
+// MCB headers intact.  Models real-hardware dirty RAM: memory a program is later
+// handed but does not initialise reads back as garbage, not zero.  emu2's arena
+// is a zero BSS global, which masks guest bugs that (over)read uninitialised or
+// over-committed far-heap memory (e.g. Info-ZIP zip's deflate on CP/M-86).  This
+// is faithful-mode fidelity so such bugs manifest on emu2 exactly as on real
+// CCP/M-86.  Callers gate it behind CPM86_POISON so existing tests are unaffected.
+void mem_poison_free(uint8_t val)
+{
+    uint16_t mcb = mcb_start;
+    while(1)
+    {
+        if(mcb_is_free(mcb))
+        {
+            uint32_t base = (uint32_t)(mcb + 1) * 16;
+            uint32_t len = (uint32_t)mcb_size(mcb) * 16;
+            if(base < 0x110000 && base + len <= 0x110000)
+                memset(memory + base, val, len);
+        }
+        if(mcb_is_last(mcb))
+            break;
+        mcb = mcb_next(mcb);
+    }
+}
+
 uint8_t mem_get_alloc_strategy(void)
 {
     return mcb_alloc_st;
