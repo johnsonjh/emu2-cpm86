@@ -248,6 +248,7 @@ int main(int argc, char **argv)
         {
         case 'b':
         case 'r':
+        case 'm':
         case 'X':
             if(argv[i][2])
                 opt = argv[i] + 2;
@@ -290,6 +291,14 @@ int main(int argc, char **argv)
                     print_usage_error("binary run address '%s' invalid.", opt);
             }
             break;
+        case 'm':
+        {
+            long v = strtol(opt, &ep, 0);
+            if(*ep || v <= 0 || v > 0xFFFF)
+                print_usage_error("CP/M-86 TPA size '%s' invalid.", opt);
+            cpm86_tpa_kb_cli = (unsigned)v;
+        }
+        break;
         case 'X':
         {
             FILE *cf = fopen(opt, "rb");

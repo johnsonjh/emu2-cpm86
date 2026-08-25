@@ -30,6 +30,8 @@ NORETURN void print_usage(void)
            "  -b <addr>     Load header-less binary at address.\n"
            "  -r <seg>:<ip> Specify a run address to start execution.\n"
            "                (only for binary loaded data).\n"
+           "  -m <kb>       CP/M-86 TPA size in KB (default 210, matching real\n"
+           "                MAME); same as setting CPM86_TPA_KB.\n"
            "\n"
            "Environment variables:\n"
            "  %-18s  Base name of a file to write the debug log, defaults to\n"
