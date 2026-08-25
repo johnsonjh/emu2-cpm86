@@ -430,6 +430,18 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(!code)
         return 0;
 
+    // Faithful-mode dirty RAM: before carving the program's groups, poison the
+    // free TPA so any memory the program is handed but does not initialise -- or
+    // OVER-reads past its real grant (e.g. a far-heap that over-commits past the
+    // loader's spread Extra allocation) -- reads back garbage, as on real
+    // CCP/M-86, instead of emu2's zero BSS arena.  Opt-in via CPM86_POISON=<byte>
+    // (default off) so existing tests are unaffected.
+    {
+        const char *pe = getenv("CPM86_POISON");
+        if(pe && *pe)
+            mem_poison_free((uint8_t)strtoul(pe, 0, 0));
+    }
+
     // --- Allocate memory for the groups (paragraphs) ------------------------
     int model_8080 = (data == 0);
     uint16_t code_par = code->max ? code->max : code->length;
@@ -1609,6 +1621,53 @@ void intr_cpm_bdos(void)
         cpuSetAX(0xFFFF);
         cpuSetCX(3);
         break;
+
+    case 128: // M_ALLOC: Concurrent CP/M-86 memory allocation.  Unlike the
+        // CP/M-86 MCB calls (53-57), this is the memory API a real Concurrent
+        // CP/M-86 (RC759, CCP/M 3.1) offers -- confirmed present on physical MAME
+        // and in the DRI source (kern/memory.mem malloc_entry, modfunc.def
+        // f_malloc=128).  The MPB {start,min,max,pdadr,flags} (5 words) reports
+        // the ACTUAL granted size back in max, so a caller (our farheap.c
+        // __AllocSeg) never over-commits.  Fidelity: emu2 previously lacked this,
+        // masking the Info-ZIP zip far-heap over-commit hang.
+    {
+        uint32_t mpb = cpuGetAddrDS(dx);
+        uint16_t need = get16(mpb + 2);   // mpb_min
+        uint16_t want = get16(mpb + 4);   // mpb_max
+        uint16_t avail = 0;
+        uint16_t got = want;
+        uint16_t seg = mem_alloc_segment(want, &avail);
+        if(!seg && avail >= need) // can't get the max; take the largest that fits min
+        {
+            uint16_t a2 = 0;
+            seg = mem_alloc_segment(avail, &a2);
+            got = avail;
+        }
+        if(seg && got >= need)
+        {
+            put16(mpb + 0, seg);          // mpb_start = granted base segment
+            put16(mpb + 4, got);          // mpb_max   = ACTUAL granted paragraphs
+            bdos_ret(0);                  // BX = 0 -> success
+            cpuSetCX(0);
+        }
+        else
+        {
+            if(seg)
+                mem_free_segment(seg);    // could not meet min -> give it back
+            bdos_ret(0xFFFF);             // BX = 0xFFFF -> failure
+            cpuSetCX(3);                  // out of memory
+        }
+        break;
+    }
+
+    case 130: // M_FREE: Concurrent CP/M-86 free.  MFPB {start, pd}; free by seg.
+    {
+        uint32_t mfpb = cpuGetAddrDS(dx);
+        mem_free_segment(get16(mfpb + 0));
+        bdos_ret(0);
+        cpuSetCX(0);
+        break;
+    }
 
     case 104: // T_SET: Set Date and Time.  emu2's clock is a deterministic
         // instruction counter over a wall-clock base, so we accept the call and
