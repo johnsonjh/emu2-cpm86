@@ -60,6 +60,39 @@ struct cpm_group
 // Set once a CP/M-86 program is loaded (see cpm86.h).
 int cpm86_active = 0;
 
+// Command-line override for the CP/M-86 TPA size, set by main.c's "-m" option
+// (0 = not given on the command line; fall back to CPM86_TPA_KB env var, then
+// the built-in default).  See cpm86_get_tpa_kb() below.
+unsigned cpm86_tpa_kb_cli = 0;
+
+// The single source of truth for the CP/M-86 TPA (transient program area)
+// size in KB, used by BOTH the .CMD loader's group grant (cpm86_load_cmd,
+// below) and dos.c's init_dos() MCB-pool sizing -- they must agree, or
+// runtime BDOS-128 calls could draw from a differently-sized pool than the
+// one the loader measured against at load time (see HANDOFF_farheap_bdos128.md).
+// Precedence: "-m" command line option > CPM86_TPA_KB env var > default.
+unsigned cpm86_get_tpa_kb(void)
+{
+    // Default = the RC759's MEASURED effective per-program TPA, not the 293K
+    // "bruger lager" the CCP/M-86 3.1 boot banner reports (banner is nominal;
+    // multitasking overhead -- console buffers, other processes, loader DMA --
+    // leaves less for a transient program's group allocation). Calibrated so
+    // emu2 reproduces the exact real-MAME boundary: Info-ZIP zip's deflate
+    // window/hash allocations fail with the same "Out of memory (window
+    // allocation)" message as the physical RC759 at this figure.
+    static const unsigned default_tpa_kb = 210;
+    if(cpm86_tpa_kb_cli)
+        return cpm86_tpa_kb_cli;
+    const char *e = getenv("CPM86_TPA_KB");
+    if(e && *e)
+    {
+        unsigned v = (unsigned)strtoul(e, 0, 0);
+        if(v)
+            return v;
+    }
+    return default_tpa_kb;
+}
+
 // Parsed program image (segments are emu2 paragraph addresses).
 static uint16_t cpm_code_seg, cpm_data_seg, cpm_base_seg;
 // Extra/stack segments of the currently-loaded program (0 = none), so BDOS 47
@@ -436,10 +469,16 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     // loader's spread Extra allocation) -- reads back garbage, as on real
     // CCP/M-86, instead of emu2's zero BSS arena.  Opt-in via CPM86_POISON=<byte>
     // (default off) so existing tests are unaffected.
+    int dirty_groups = 0;
     {
+        const char *dg = getenv("CPM86_DIRTY_GROUPS");
         const char *pe = getenv("CPM86_POISON");
+        if(dg && *dg && *dg != '0')
+            dirty_groups = 1;
         if(pe && *pe)
             mem_poison_free((uint8_t)strtoul(pe, 0, 0));
+        else if(dirty_groups)
+            mem_poison_free(0xFF); // closer to real CCP/M dirty-RAM behavior
     }
 
     // --- Allocate memory for the groups (paragraphs) ------------------------
@@ -455,24 +494,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(data && data->max && data->max >= data->length && data->max < 0x1000)
         data_par = data->max;
 
-    uint16_t gotmax = 0;
-    if(model_8080)
-    {
-        if(code_par < 0x1000)
-            code_par = 0x1000;
-        cpm_code_seg = cpm_data_seg = cpm_base_seg = mem_alloc_segment(code_par, &gotmax);
-        if(!cpm_code_seg)
-            return 0;
-    }
-    else
-    {
-        cpm_code_seg = mem_alloc_segment(code_par, &gotmax);
-        cpm_data_seg = cpm_base_seg = mem_alloc_segment(data_par, &gotmax);
-        if(!cpm_code_seg || !cpm_data_seg)
-            return 0;
-    }
-
-    // Extra (ES) and stack (SS) groups. FAITHFUL to genuine CCP/M-86 2.0
+    // Extra (ES) and stack (SS) groups + overall non-abs memory grant.
+    // FAITHFUL to genuine CCP/M-86 2.0
     // kern/load.sup: the loader does NOT hand each group its own g_max
     // independently. It sums every group's min and max, does ONE allocation of
     // the total bounded by the free TPA (>= total_min or "insufficient memory"),
@@ -488,26 +511,15 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     // alloc fails on the RC759 (293K user memory) yet succeeded under old emu2.
     // Reproduce the real distribution, bounded by a configurable TPA
     // (CPM86_TPA_KB, default 293 = the RC759/Piccoline CCP/M-86 3.1 figure), so a
-    // program that passes here is real evidence.  code+data are already placed
-    // above (their required sizes); they are the fixed part of the sum.
+    // program that passes here is real evidence.
     uint16_t extra_seg = 0, extra_par = 0, stack_seg = 0, stack_par = 0;
+    uint16_t grant_seg = 0;
     {
-        // Default = the RC759's MEASURED effective per-program TPA, not the
-        // 293K "bruger lager" the CCP/M-86 3.1 boot banner reports. The banner
-        // is nominal; multitasking overhead (console buffers, other processes,
-        // loader DMA) leaves ~210K for a transient program's group allocation.
-        // Calibrated so emu2 reproduces the exact real-MAME boundary: the
-        // Info-ZIP zip 48K-farheap build fails "Out of memory (window
-        // allocation)" at <=210K here just as on the physical RC759, and runs at
-        // 215K. Override with CPM86_TPA_KB for a differently-configured machine.
-        unsigned tpa_kb = 210;
-        const char *e = getenv("CPM86_TPA_KB");
-        if(e && *e)
-        {
-            unsigned v = (unsigned)strtoul(e, 0, 0);
-            if(v)
-                tpa_kb = v;
-        }
+        if(model_8080 && code_par < 0x1000)
+            code_par = 0x1000;
+        // TPA size: "-m" CLI option > CPM86_TPA_KB env var > built-in default
+        // matching real MAME -- see cpm86_get_tpa_kb() for the full rationale.
+        unsigned tpa_kb = cpm86_get_tpa_kb();
         uint32_t tpa_paras = (uint32_t)tpa_kb * 64;   // 1 KB = 64 paragraphs
         uint32_t fixed = (uint32_t)code_par + (model_8080 ? 0 : data_par);
         uint16_t ex_min = extra ? extra->min : 0;
@@ -516,14 +528,39 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         uint16_t st_max = (stack && stack->max > stack->min) ? stack->max : st_min;
         uint32_t total_min = fixed + ex_min + st_min;
         uint32_t total_max = fixed + ex_max + st_max;
-        // Grant = min(total_max, TPA); a real loader rejects a program whose
-        // minimum does not fit ("Concurrent Fejl: For lidt lager").
-        uint32_t grant = total_max < tpa_paras ? total_max : tpa_paras;
-        if(total_min > tpa_paras)
+        if(total_min > tpa_paras || total_min > 0xFFFF)
         {
             debug(debug_dos, "CP/M-86 load: program min %u paras exceeds TPA %u "
                              "-> insufficient memory\n", (unsigned)total_min,
                   (unsigned)tpa_paras);
+            return 0;
+        }
+        // Ask for the full want (capped at the TPA figure); the underlying MCB
+        // pool (sized to CPM86_TPA_KB in dos.c's mcb_init call) is itself the
+        // real ceiling, so a request that exceeds what's ACTUALLY free (e.g.
+        // because the loader's own PSP/environment already ate a few
+        // paragraphs of the same TPA) must fall back to the largest block that
+        // still covers total_min -- exactly the same "ask max, then take
+        // largest-that-fits-min" pattern BDOS-128 (M_ALLOC, case 128 below)
+        // uses for a program's later runtime allocations. Using the grant's
+        // TRUE size (not the raw TPA figure) for the surplus spread matches
+        // load.sup: the spread happens AFTER the combined f_malloc returns.
+        uint32_t want = total_max < tpa_paras ? total_max : tpa_paras;
+        uint16_t gotmax = 0;
+        grant_seg = mem_alloc_segment((uint16_t)want, &gotmax);
+        uint32_t grant = 0;
+        if(grant_seg)
+            grant = want;
+        else if(gotmax >= total_min)
+        {
+            grant_seg = mem_alloc_segment(gotmax, &gotmax);
+            grant = gotmax;
+        }
+        if(!grant_seg)
+        {
+            debug(debug_dos, "CP/M-86 load: could not allocate %u paras (min %u) "
+                             "-> insufficient memory\n", (unsigned)want,
+                  (unsigned)total_min);
             return 0;
         }
         uint32_t surplus = grant - total_min;
@@ -553,19 +590,37 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
                 st_par = st_min + (uint16_t)share;
             }
         }
-        if(extra && ex_par)
+        extra_par = (extra && ex_par) ? ex_par : 0;
+        stack_par = (stack && st_par) ? st_par : 0;
+
+        // The grant itself was already sized as fixed+extra_par+stack_par
+        // (mem_alloc_segment above), so groups can be placed directly -- no
+        // second allocation call needed.
+    }
+
+    // Place groups contiguously inside the one non-abs grant (load.sup style).
+    {
+        uint16_t cur = grant_seg;
+        cpm_code_seg = cur;
+        cur = (uint16_t)(cur + code_par);
+        if(model_8080)
         {
-            uint16_t a;
-            extra_seg = mem_alloc_segment(ex_par, &a);
-            if(extra_seg)
-                extra_par = ex_par;
+            cpm_data_seg = cpm_base_seg = cpm_code_seg;
         }
-        if(stack && st_par)
+        else
         {
-            uint16_t a;
-            stack_seg = mem_alloc_segment(st_par, &a);
-            if(stack_seg)
-                stack_par = st_par;
+            cpm_data_seg = cpm_base_seg = cur;
+            cur = (uint16_t)(cur + data_par);
+        }
+        if(extra_par)
+        {
+            extra_seg = cur;
+            cur = (uint16_t)(cur + extra_par);
+        }
+        if(stack_par)
+        {
+            stack_seg = cur;
+            cur = (uint16_t)(cur + stack_par);
         }
     }
 
@@ -592,7 +647,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         {
             stack_seg = scratch;
             stack_par = 6;
-            memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
+            if(!dirty_groups)
+                memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
         }
         // If allocation fails (memory exhausted), fall through to the old
         // SS=DS behavior below rather than failing the load.
@@ -638,7 +694,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     }
     if(extra_seg)
     {
-        memset(memory + (uint32_t)extra_seg * 16, 0, (uint32_t)extra_par * 16);
+        if(!dirty_groups)
+            memset(memory + (uint32_t)extra_seg * 16, 0, (uint32_t)extra_par * 16);
         if(extra->length)
         {
             fseek(f, extra->file_off, SEEK_SET);
@@ -650,7 +707,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         // (Our spec-default scratch stack, when stack==0, already memset its
         // own segment above at allocation time -- this block only applies to
         // a CMD-declared STACK group, which has real file image data to load.)
-        memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
+        if(!dirty_groups)
+            memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
         if(stack->length)
         {
             fseek(f, stack->file_off, SEEK_SET);
@@ -1643,6 +1701,9 @@ void intr_cpm_bdos(void)
             seg = mem_alloc_segment(avail, &a2);
             got = avail;
         }
+        if(getenv("CPM86_TRACE_ALLOC"))
+            fprintf(stderr, "BDOS128: need=%u want=%u avail=%u got=%u seg=%u\n",
+                    need, want, avail, got, seg);
         if(seg && got >= need)
         {
             put16(mpb + 0, seg);          // mpb_start = granted base segment
