@@ -21,6 +21,9 @@ void mem_set_alloc_strategy(uint8_t s);
 // Init internal memory handling
 void mcb_init(uint16_t mem_start, uint16_t mem_end);
 
+// Fill all free MCB regions with a poison byte (CPM86_POISON fidelity).
+void mem_poison_free(uint8_t val);
+
 // Loaders
 int dos_load_exe(FILE *f, uint16_t psp_mcb);
 int dos_read_overlay(FILE *f, uint16_t load_seg, uint16_t reloc_seg);
