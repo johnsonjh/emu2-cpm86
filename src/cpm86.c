@@ -1119,6 +1119,17 @@ void intr_cpm_bdos(void)
     unsigned func = cpuGetCX() & 0xFF;
     unsigned dx = cpuGetDX();
 
+    // CP/M-86 System Guide S4.1: BDOS preserves SI/DI/BP/DS/SS (PL/M-86 contract).
+    // ES is not saved (double-word returns use ES:BX).
+    unsigned saved_si = cpuGetSI(), saved_di = cpuGetDI(), saved_bp = cpuGetBP();
+    unsigned saved_ds = cpuGetDS(), saved_ss = cpuGetSS();
+    // Console-output functions (2, 9, 6-out) return no value; save AX/BX/CX/DX
+    // so bdos_ret() clobbers don't corrupt the caller's registers.
+    unsigned saved_ax = cpuGetAX(), saved_bx = cpuGetBX();
+    unsigned saved_cx = cpuGetCX(), saved_dx = cpuGetDX();
+    int no_return = (func == 2) || (func == 9) ||
+                    (func == 6 && (dx & 0xFF) < 0xFD);
+
     switch(func)
     {
     case 0:   // System Reset / program termination
@@ -1450,6 +1461,23 @@ void intr_cpm_bdos(void)
         debug(debug_dos, "CP/M BDOS %u: UNIMPLEMENTED (DX=%04x)\n", func, dx);
         bdos_ret(0xFF); // 0xFF = error / not found for most file funcs
         break;
+    }
+
+    // Restore preserved registers; P_CHAIN (47) is exempt (it loads a new program).
+    if(func != 47)
+    {
+        cpuSetSI(saved_si);
+        cpuSetDI(saved_di);
+        cpuSetBP(saved_bp);
+        cpuSetDS(saved_ds);
+        cpuSetSS(saved_ss);
+        if(no_return)
+        {
+            cpuSetAX(saved_ax);
+            cpuSetBX(saved_bx);
+            cpuSetCX(saved_cx);
+            cpuSetDX(saved_dx);
+        }
     }
 }
 
