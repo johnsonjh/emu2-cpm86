@@ -120,16 +120,19 @@ The available environment variables are:
                        disks, instead of the standard 512 extents (8 MB files, ~8 MB
                        disks). Needs CP/M-3-aware tools to use the larger sizes.
 
-- `EMU2_CPMVER`        CP/M version reported to native CP/M-86 programs by BDOS
-                       function 12, as a major dot minor (e.g. `3.1`, `2.2`) or a
-                       bare major (`3`). Defaults to `3.1`. CP/M 3.0 and later
-                       maintain the *last-record byte count* (LRBC) in the
-                       directory/FCB `S1` field, so programs see exact file lengths
-                       instead of sizes rounded up to the 128-byte record boundary.
-                       Older programs that expect 2.2 treat `S1` as reserved, so the
-                       byte-count metadata is only filled in when a 3.0+ version is
-                       reported; set this to `2.2` for programs that misbehave when
-                       told they are running under CP/M 3.
+- `EMU2_CPMVER`        CP/M version reported to CP/M-86 / Concurrent CP/M-86
+                       programs by BDOS function 12 (S_BDOSVER), as a major dot
+                       minor (e.g. `3.1`, `2.2`) or a bare major (`3`). Defaults
+                       to `3.1`, matching the Concurrent CP/M-86 3.1 of the
+                       reference RC759 system. Concurrent CP/M-86 (a CP/M-3-era
+                       system, like DOS Plus) maintains the *last-record byte
+                       count* (LRBC) in the directory/FCB `S1` field, so programs
+                       see exact file lengths instead of sizes rounded up to the
+                       128-byte record boundary. Older programs written for
+                       CP/M-86 1.x / CP/M 2.2 treat `S1` as reserved, so the
+                       byte-count metadata is only filled in when a 3.0+ version
+                       is reported; set this to `2.2` for programs that misbehave
+                       when told they are running under Concurrent CP/M-86.
 
 - `EMU2_LRBC_NOTRUNC`  By default, when LRBC is active (CP/M 3.0+), emu2 trims a
                        host file to its exact byte count on close, so output is no
