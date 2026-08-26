@@ -60,26 +60,13 @@ struct cpm_group
 // Set once a CP/M-86 program is loaded (see cpm86.h).
 int cpm86_active = 0;
 
-// Command-line override for the CP/M-86 TPA size, set by main.c's "-m" option
-// (0 = not given on the command line; fall back to CPM86_TPA_KB env var, then
-// the built-in default).  See cpm86_get_tpa_kb() below.
+// -m CLI override for TPA size (0 = not set; falls back to CPM86_TPA_KB env var).
 unsigned cpm86_tpa_kb_cli = 0;
 
-// The single source of truth for the CP/M-86 TPA (transient program area)
-// size in KB, used by BOTH the .CMD loader's group grant (cpm86_load_cmd,
-// below) and dos.c's init_dos() MCB-pool sizing -- they must agree, or
-// runtime BDOS-128 calls could draw from a differently-sized pool than the
-// one the loader measured against at load time (see HANDOFF_farheap_bdos128.md).
-// Precedence: "-m" command line option > CPM86_TPA_KB env var > default.
+// Canonical TPA size in KB; shared by the loader and dos.c MCB-pool init.
+// Precedence: -m CLI > CPM86_TPA_KB env var > default (210 = RC759 measured).
 unsigned cpm86_get_tpa_kb(void)
 {
-    // Default = the RC759's MEASURED effective per-program TPA, not the 293K
-    // "bruger lager" the CCP/M-86 3.1 boot banner reports (banner is nominal;
-    // multitasking overhead -- console buffers, other processes, loader DMA --
-    // leaves less for a transient program's group allocation). Calibrated so
-    // emu2 reproduces the exact real-MAME boundary: Info-ZIP zip's deflate
-    // window/hash allocations fail with the same "Out of memory (window
-    // allocation)" message as the physical RC759 at this figure.
     static const unsigned default_tpa_kb = 210;
     if(cpm86_tpa_kb_cli)
         return cpm86_tpa_kb_cli;
@@ -494,24 +481,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(data && data->max && data->max >= data->length && data->max < 0x1000)
         data_par = data->max;
 
-    // Extra (ES) and stack (SS) groups + overall non-abs memory grant.
-    // FAITHFUL to genuine CCP/M-86 2.0
-    // kern/load.sup: the loader does NOT hand each group its own g_max
-    // independently. It sums every group's min and max, does ONE allocation of
-    // the total bounded by the free TPA (>= total_min or "insufficient memory"),
-    // then SPREADS the actual allocation -- min to everybody first, then the
-    // surplus proportionally among the groups that want more (capped at
-    // max-min). Each group's BASE-PAGE length is that finally-distributed size
-    // (load.sup init_base writes ldt_min after the spread), NOT its raw g_max.
-    //
-    // emu2 used to be too generous: with its ~640K arena it always granted the
-    // full g_max, so a program that assumed the loader pre-reserved its Extra
-    // g_max (e.g. Watcom `option farheap` for a far heap) "worked" here but got
-    // only its share on a real, tighter machine -- Info-ZIP zip's deflate window
-    // alloc fails on the RC759 (293K user memory) yet succeeded under old emu2.
-    // Reproduce the real distribution, bounded by a configurable TPA
-    // (CPM86_TPA_KB, default 293 = the RC759/Piccoline CCP/M-86 3.1 figure), so a
-    // program that passes here is real evidence.
+    // Allocate groups faithfully: try g_max first, fall back to g_min, spread
+    // surplus proportionally (mirrors CCP/M-86 2.0 load.sup), bounded by TPA.
     uint16_t extra_seg = 0, extra_par = 0, stack_seg = 0, stack_par = 0;
     uint16_t grant_seg = 0;
     {
@@ -730,23 +701,11 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         }
     }
 
-    // --- Load-time relocation ("P_LOAD" fixups) -----------------------------
-    // A wlink `format cpm86` compact-model .CMD (near DGROUP + far data in a
-    // type-3 EXTRA group, and/or medium-model far code) carries a P_LOAD fixup
-    // table: header byte 0x7F bit 7 set, header word 0x7D = ch_fixrec (the file
-    // RECORD number, *128 = byte offset, of a packed array of 4-byte records
-    // ending at the first all-zero record).  Each record patches one 16-bit
-    // SEGMENT word that the linker left as a group-relative paragraph; the
-    // loader ADDS the target group's runtime load segment.  Without this an
-    // EXTRA-group far pointer (e.g. INFO-Zip UnZip's far strings) or a far code
-    // seg is left pointing at paragraph 0 and the program reads garbage.
-    // Faithful port of the genuine CCP/M-86 2.0 loader (load.sup:402-449) and
-    // of cpm86run_unicorn.py _apply_fixups; see reference_cpm86_cmd_header_
-    // ccpm_source.md + reference_wlink_cpm86_far_data_type3.md.
-    //   byte0 = (loc_grp<<4)|tgt_grp  group NUMBERs (1=CODE 2=DATA 3=EXTRA
-    //                                 4=STACK, 5..8=AUX)
-    //   byte1-2 = paragraph of the word within its LOCATION group (LE)
-    //   byte3 = byte offset 0..15 of the word within that paragraph
+    // P_LOAD fixup table: hdr[0x7F] bit 7 set, hdr[0x7D..0x7E] = file record
+    // number (x128 = byte offset).  Each 4-byte entry: byte0=(loc<<4|tgt) group
+    // numbers (1=CODE 2=DATA 3=EXTRA 4=STACK 5..8=AUX), bytes1-2=paragraph in
+    // loc group (LE), byte3=byte offset.  Add tgt's load segment to the word.
+    // Ends at first all-zero entry.
     if(hdr[0x7F] & 0x80)
     {
         uint16_t grp_seg[9] = {0};
@@ -1367,28 +1326,12 @@ void intr_cpm_bdos(void)
     unsigned func = cpuGetCX() & 0xFF;
     unsigned dx = cpuGetDX();
 
-    // Per the CP/M-86 System Guide S4.1: "All segment registers, except ES, are
-    // saved upon entry and restored upon exit from the BDOS (corresponding to
-    // PL/M-86 conventions)." PL/M-86 additionally preserves SI, DI and BP; only
-    // AX, BX, CX, DX and ES are scratch/return registers. emu2 delegates most
-    // functions to its INT 21h (DOS) handlers via bdos_via_dos()/intr21(), which
-    // freely clobber the host SI/DI/BP/DS/SS -- registers a real CP/M-86 BDOS
-    // leaves untouched. Snapshot them here and restore below so a caller whose
-    // string/loop pointer lives in SI (e.g. `while(*s) conout(*s++)`) is not
-    // corrupted. Without this, only the FIRST char of each such loop printed.
-    // ES is deliberately NOT saved (functions 31/table lookups return in ES:BX).
+    // CP/M-86 System Guide S4.1: BDOS preserves SI/DI/BP/DS/SS (PL/M-86 contract).
+    // ES is not saved (double-word returns use ES:BX).
     unsigned saved_si = cpuGetSI(), saved_di = cpuGetDI(), saved_bp = cpuGetBP();
     unsigned saved_ds = cpuGetDS(), saved_ss = cpuGetSS();
-    // AX/BX are the BDOS *return* registers, but only for functions that return
-    // a value: "Single byte values are returned in AL, word values in both AX and
-    // BX" (System Guide S4.1). Functions that return NOTHING -- console output (2),
-    // print $-string (9), and the output sub-function of Direct Console I/O (6,
-    // DL<0FDh) -- leave AX/BX untouched on real CP/M-86. emu2 wraps every case in
-    // bdos_ret(), which writes both AX and BX unconditionally, clobbering a
-    // caller's BX. Watcom's `puts_n` keeps its string pointer in BX across the
-    // `int 0E0h` (verified: `mov bx,ax; L: mov al,[bx]; ...; int 0E0h; inc bx`),
-    // so the old emu2 destroyed it after the FIRST char and printed only "P" of
-    // "PASS...". Snapshot AX/BX and restore them for these no-return functions.
+    // Console-output functions (2, 9, 6-out) return no value; save AX/BX/CX/DX
+    // so bdos_ret() clobbers don't corrupt the caller's registers.
     unsigned saved_ax = cpuGetAX(), saved_bx = cpuGetBX();
     unsigned saved_cx = cpuGetCX(), saved_dx = cpuGetDX();
     int no_return = (func == 2) || (func == 9) ||
@@ -1777,11 +1720,7 @@ void intr_cpm_bdos(void)
         break;
     }
 
-    // Restore the registers a real CP/M-86 BDOS preserves (see the entry note):
-    // SI, DI, BP and the DS/SS segment registers. ES is left as the handler set
-    // it (double-word returns come back in ES:BX). P_CHAIN (47) is exempt: it
-    // does NOT return to the caller -- it loads a new program and set up that
-    // program's own CS/DS/SS/IP, which we must not overwrite.
+    // Restore preserved registers; P_CHAIN (47) is exempt (it loads a new program).
     if(func != 47)
     {
         cpuSetSI(saved_si);
@@ -1789,10 +1728,6 @@ void intr_cpm_bdos(void)
         cpuSetBP(saved_bp);
         cpuSetDS(saved_ds);
         cpuSetSS(saved_ss);
-        // No-value functions (console output 2/9, direct-console output 6)
-        // return nothing, so a real BDOS leaves ALL caller registers intact
-        // (Watcom's conout binding declares `modify [cl]` only). Undo the
-        // bdos_ret()/intr21() clobber of AX/BX/CX/DX for them.
         if(no_return)
         {
             cpuSetAX(saved_ax);

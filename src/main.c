@@ -226,9 +226,7 @@ static void init_bios_mem(void)
     update_timer();
 }
 
-// EMU2_RAMDUMP atexit handler: flush the full 1 MB guest RAM image to the file
-// named by the env var, for an independent host-side content check of what the
-// CP/M-86 guest actually wrote to memory.
+// Write the full 1 MB guest RAM flat image to the file named by EMU2_RAMDUMP.
 static void dump_ram_on_exit(void)
 {
     const char *path = getenv("EMU2_RAMDUMP");
