@@ -34,11 +34,49 @@ Options (should be placed *before* the DOS program name):
 - `-r <seg>:<ip>`  Specify a run address to start execution (only for binary loaded data).
 
 The available environment variables are:
+Debugging
+---------
+
+To trace what emu2 is doing, set `EMU2_DEBUG` to a comma- or space-separated
+list of one or more keywords.  Each active keyword writes a separate log file
+named `<base>-<keyword>.<n>.log` (where `<base>` is the program name or the
+value of `EMU2_DEBUG_NAME`, and `<n>` is a sequence number to avoid overwriting
+old logs).  The log files are flushed after every line and closed on exit.
+
+The available keywords and what they trace:
+
+| Keyword | What it covers |
+|---------|----------------|
+| `cpu`   | Every instruction executed: all registers + flags + disassembly.  **Very** verbose — expect gigabytes for a non-trivial program.  Useful for tracing crashes or unexpected branches. |
+| `int`   | Hardware interrupt dispatch (IRQ handling, emulator update cycles, INT 19, INT 2Fh multiplexer, DOS INT 25h raw-disk stubs).  Much lighter than `cpu`; good first step. |
+| `port`  | Every I/O port read and write (`IN`/`OUT`).  Useful when a program talks to hardware (keyboard, video, timer). |
+| `dos`   | All DOS INT 21h and CP/M-86 BDOS calls with their arguments and return values.  For CP/M-86 programs this also shows BDOS function names, FCB contents, file search results, memory allocation, and chain operations.  The most useful keyword for debugging application-level misbehaviour. |
+| `video` | Terminal/video initialisation and mode changes (screen size, text mode, clear events).  Not individual character output.  Useful when the display layout looks wrong. |
+
+Examples:
+
+```sh
+# Trace all DOS/BDOS calls made by a CP/M-86 program
+EMU2_DEBUG=dos emu2 myprog.cmd
+
+# Trace both BDOS calls and interrupt dispatch
+EMU2_DEBUG="dos int" emu2 myprog.cmd
+
+# Save logs under a fixed base name (avoids per-run sequence numbers)
+EMU2_DEBUG=dos EMU2_DEBUG_NAME=trace emu2 myprog.cmd
+# -> writes trace-dos.0.log
+```
+
+`EMU2_RAMDUMP` (see below) complements the debug logs: it captures the full
+1 MB guest RAM image on exit, which is useful for post-mortem inspection of
+stack, BSS, and heap state after a crash.
+
 - `EMU2_DEBUG_NAME`    Base name of a file to write the debug log, defaults to
                        the exe name if not given.
 
-- `EMU2_DEBUG`         List of debug options to activate, from the following:
-                       `cpu`, `int`, `port`, `dos`, `video`.
+- `EMU2_DEBUG`         Comma- or space-separated list of keywords to trace.
+                       See the *Debugging* section above for details.
+                       Available keywords: `cpu`, `int`, `port`, `dos`, `video`.
 
 - `EMU2_PROGNAME`      DOS program name, if not given try to convert the unix
                        name to an equivalent DOS path.
@@ -162,3 +200,12 @@ The available environment variables are:
                        the BIOS video and so talk straight to the host terminal,
                        translates them to the ANSI your terminal understands. On by
                        default; set to `0`/`off`/`no` to disable. No effect on DOS.
+
+- `EMU2_RAMDUMP`       Path of a file to write the full 1 MB guest RAM image on
+                       exit.  The file is written as a flat binary (offset 0 =
+                       physical address 0x00000).  Useful for post-mortem
+                       inspection after a crash: load into a hex editor or
+                       disassembler and inspect the stack, BSS, and heap at the
+                       moment the program ended.  Has no effect on program
+                       behaviour; the dump is always written regardless of whether
+                       the program exits cleanly or crashes.
