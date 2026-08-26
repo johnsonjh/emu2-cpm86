@@ -1473,6 +1473,46 @@ void intr_cpm_bdos(void)
         cpuSetCX(3);
         break;
 
+    case 128: // M_ALLOC: allocate memory via MPB {start,min,max,pd,flags}.
+    {
+        uint32_t mpb = cpuGetAddrDS(dx);
+        uint16_t need = get16(mpb + 2); // mpb_min
+        uint16_t want = get16(mpb + 4); // mpb_max
+        uint16_t avail = 0;
+        uint16_t got = want;
+        uint16_t seg = mem_alloc_segment(want, &avail);
+        if(!seg && avail >= need)
+        {
+            uint16_t a2 = 0;
+            seg = mem_alloc_segment(avail, &a2);
+            got = avail;
+        }
+        if(seg && got >= need)
+        {
+            put16(mpb + 0, seg);
+            put16(mpb + 4, got); // return actual grant in mpb_max
+            bdos_ret(0);
+            cpuSetCX(0);
+        }
+        else
+        {
+            if(seg)
+                mem_free_segment(seg);
+            bdos_ret(0xFFFF);
+            cpuSetCX(3);
+        }
+        break;
+    }
+
+    case 130: // M_FREE: free segment from MFPB {start, pd}.
+    {
+        uint32_t mfpb = cpuGetAddrDS(dx);
+        mem_free_segment(get16(mfpb + 0));
+        bdos_ret(0);
+        cpuSetCX(0);
+        break;
+    }
+
     case 104: // T_SET: accept call, return success (clock is read-only).
         bdos_ret(0);
         break;
