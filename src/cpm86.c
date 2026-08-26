@@ -462,6 +462,18 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(!code)
         return 0;
 
+    // CPM86_POISON=<byte>: fill free TPA with that byte before loading so
+    // uninitialised or over-committed memory reads as garbage, not zero.
+    int dirty_groups = 0;
+    {
+        const char *pe = getenv("CPM86_POISON");
+        if(pe && *pe)
+        {
+            dirty_groups = 1;
+            mem_poison_free((uint8_t)strtoul(pe, 0, 0));
+        }
+    }
+
     // --- Allocate memory for the groups (paragraphs) ------------------------
     int model_8080 = (data == 0);
     uint16_t code_par = code->max ? code->max : code->length;
@@ -659,7 +671,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     }
     if(extra_seg)
     {
-        memset(memory + (uint32_t)extra_seg * 16, 0, (uint32_t)extra_par * 16);
+        if(!dirty_groups)
+            memset(memory + (uint32_t)extra_seg * 16, 0, (uint32_t)extra_par * 16);
         if(extra->length)
         {
             fseek(f, extra->file_off, SEEK_SET);
@@ -668,7 +681,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     }
     if(stack_seg)
     {
-        memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
+        if(!dirty_groups)
+            memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
         if(stack->length)
         {
             fseek(f, stack->file_off, SEEK_SET);
