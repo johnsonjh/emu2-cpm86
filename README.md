@@ -130,8 +130,11 @@ The available environment variables are:
                        byte-count metadata is only filled in when a 3.0+ version is
                        reported; set this to `2.2` for programs that misbehave when
                        told they are running under CP/M 3.
-                       Note: the reference RC759 runs Concurrent CP/M-86 3.1, so use
-                       `3.1` (the default) to match its reported version number.
+                       Note: emu2 is a *single-user* CP/M-86 emulator. It does not
+                       emulate the multi-user / concurrent variants of CP/M (Concurrent
+                       CP/M-86, MP/M-86), so this only sets the reported single-user
+                       CP/M version -- there is no way to make a program believe it is
+                       running under a multi-user CP/M.
 
 - `EMU2_LRBC_NOTRUNC`  By default, when LRBC is active (CP/M 3.0+), emu2 trims a
                        host file to its exact byte count on close, so output is no
