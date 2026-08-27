@@ -690,6 +690,55 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         }
     }
 
+    // P_LOAD fixup table: hdr[0x7F] bit 7 set, hdr[0x7D..0x7E] = file record
+    // number (x128 = byte offset).  Each 4-byte entry: byte0=(loc<<4|tgt) group
+    // numbers (1=CODE 2=DATA 3=EXTRA 4=STACK 5..8=AUX), bytes1-2=paragraph in
+    // loc group (LE), byte3=byte offset.  Add tgt's load segment to the word.
+    // Ends at first all-zero entry.
+    if(hdr[0x7F] & 0x80)
+    {
+        uint16_t grp_seg[9] = {0};
+        grp_seg[GT_CODE]  = cpm_code_seg;
+        grp_seg[GT_DATA]  = data ? cpm_data_seg : 0;
+        grp_seg[GT_EXTRA] = extra_seg;
+        grp_seg[GT_STACK] = stack_seg;
+        grp_seg[5] = aux_seg[0];
+        grp_seg[6] = aux_seg[1];
+        grp_seg[7] = aux_seg[2];
+        grp_seg[8] = aux_seg[3];
+
+        uint32_t fixrec = (uint32_t)hdr[0x7D] | ((uint32_t)hdr[0x7E] << 8);
+        uint32_t pos = fixrec * 128;
+        unsigned applied = 0;
+        for(;;)
+        {
+            uint8_t rec[4];
+            if(fseek(f, pos, SEEK_SET) != 0 || fread(rec, 1, 4, f) != 4)
+                break;
+            if(rec[0] == 0 && rec[1] == 0 && rec[2] == 0 && rec[3] == 0)
+                break; // table ends at the first all-zero record
+            unsigned loc_grp = (rec[0] >> 4) & 0x0F;
+            unsigned tgt_grp = rec[0] & 0x0F;
+            uint16_t para = (uint16_t)(rec[1] | (rec[2] << 8));
+            uint8_t offs = rec[3] & 0x0F;
+            if(loc_grp > 8 || tgt_grp > 8 || grp_seg[loc_grp] == 0 ||
+               (grp_seg[tgt_grp] == 0 && tgt_grp != 0))
+            {
+                debug(debug_dos,
+                      "CP/M-86 load: fixup #%u names undefined group "
+                      "(byte 0x%02x) -- skipped\n",
+                      applied, rec[0]);
+                pos += 4;
+                continue;
+            }
+            uint32_t addr = ((uint32_t)(grp_seg[loc_grp] + para) << 4) + offs;
+            put16(addr, (get16(addr) + grp_seg[tgt_grp]) & 0xFFFF);
+            applied++;
+            pos += 4;
+        }
+        debug(debug_dos, "CP/M-86 load: applied %u load-time fixup(s)\n", applied);
+    }
+
     // --- Base page (256 bytes at DS:0) --------------------------------------
     // CP/M-86 lays out the base page as 6-byte group descriptors, one per group
     // in the order code, data, extra, stack (then auxiliary groups):
@@ -1210,6 +1259,17 @@ void intr_cpm_bdos(void)
     unsigned func = cpuGetCX() & 0xFF;
     unsigned dx = cpuGetDX();
 
+    // CP/M-86 System Guide S4.1: BDOS preserves SI/DI/BP/DS/SS (PL/M-86 contract).
+    // ES is not saved (double-word returns use ES:BX).
+    unsigned saved_si = cpuGetSI(), saved_di = cpuGetDI(), saved_bp = cpuGetBP();
+    unsigned saved_ds = cpuGetDS(), saved_ss = cpuGetSS();
+    // Console-output functions (2, 9, 6-out) return no value; save AX/BX/CX/DX
+    // so bdos_ret() clobbers don't corrupt the caller's registers.
+    unsigned saved_ax = cpuGetAX(), saved_bx = cpuGetBX();
+    unsigned saved_cx = cpuGetCX(), saved_dx = cpuGetDX();
+    int no_return = (func == 2) || (func == 9) ||
+                    (func == 6 && (dx & 0xFF) < 0xFD);
+
     switch(func)
     {
     case 0:   // System Reset / program termination
@@ -1584,6 +1644,23 @@ void intr_cpm_bdos(void)
         debug(debug_dos, "CP/M BDOS %u: UNIMPLEMENTED (DX=%04x)\n", func, dx);
         bdos_ret(0xFF); // 0xFF = error / not found for most file funcs
         break;
+    }
+
+    // Restore preserved registers; P_CHAIN (47) is exempt (it loads a new program).
+    if(func != 47)
+    {
+        cpuSetSI(saved_si);
+        cpuSetDI(saved_di);
+        cpuSetBP(saved_bp);
+        cpuSetDS(saved_ds);
+        cpuSetSS(saved_ss);
+        if(no_return)
+        {
+            cpuSetAX(saved_ax);
+            cpuSetBX(saved_bx);
+            cpuSetCX(saved_cx);
+            cpuSetDX(saved_dx);
+        }
     }
 }
 
