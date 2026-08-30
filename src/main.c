@@ -226,6 +226,19 @@ static void init_bios_mem(void)
     update_timer();
 }
 
+// Write the full 1 MB guest RAM flat image to the file named by EMU2_RAMDUMP.
+static void dump_ram_on_exit(void)
+{
+    const char *path = getenv("EMU2_RAMDUMP");
+    if(!path)
+        return;
+    FILE *f = fopen(path, "wb");
+    if(!f)
+        return;
+    fwrite(memory, 1, 0x100000, f);
+    fclose(f);
+}
+
 int main(int argc, char **argv)
 {
     int i;
@@ -322,6 +335,9 @@ int main(int argc, char **argv)
     // Init debug facilities
     init_debug(argv[1]);
     init_cpu();
+
+    if(getenv("EMU2_RAMDUMP"))
+        atexit(dump_ram_on_exit);
 
     if(bin_load_addr >= 0)
     {
