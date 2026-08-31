@@ -27,7 +27,7 @@ extern int cpm86_active;
 extern unsigned cpm86_tpa_kb_cli;
 
 // Single source of truth for the CP/M-86 TPA size in KB: "-m" CLI option >
-// CPM86_TPA_KB env var > built-in default (calibrated to match real MAME).
+// CPM86_TPA_KB env var > built-in default (~640K).
 // Used both by cpm86_load_cmd()'s group grant and dos.c's init_dos() MCB-pool
 // sizing, so they always agree on the same ceiling.
 unsigned cpm86_get_tpa_kb(void);
