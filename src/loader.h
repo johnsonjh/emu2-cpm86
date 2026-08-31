@@ -21,8 +21,7 @@ void mem_set_alloc_strategy(uint8_t s);
 // Init internal memory handling
 void mcb_init(uint16_t mem_start, uint16_t mem_end);
 
-// Faithful-mode: fill free memory with garbage (real HW dirty RAM); gated by
-// CPM86_POISON so guest bugs that read uninitialised/over-committed heap surface.
+// Fill all free MCB regions with a poison byte (CPM86_POISON).
 void mem_poison_free(uint8_t val);
 
 // Loaders
