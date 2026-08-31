@@ -449,15 +449,17 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(!code)
         return 0;
 
-    // CPM86_POISON=<byte>: fill free memory before loading (debug aid).
+    // CPM86_POISON=<byte> / CPM86_DIRTY_GROUPS: fill free memory before loading.
     int dirty_groups = 0;
     {
+        const char *dg = getenv("CPM86_DIRTY_GROUPS");
         const char *pe = getenv("CPM86_POISON");
-        if(pe && *pe)
-        {
+        if(dg && *dg && *dg != '0')
             dirty_groups = 1;
+        if(pe && *pe)
             mem_poison_free((uint8_t)strtoul(pe, 0, 0));
-        }
+        else if(dirty_groups)
+            mem_poison_free(0xFF);
     }
 
     // --- Allocate memory for the groups (paragraphs) ------------------------
@@ -473,9 +475,9 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(data && data->max && data->max >= data->length && data->max < 0x1000)
         data_par = data->max;
 
-    // Allocate all groups in one combined grant (load.sup style): sum min/max
-    // across all groups, allocate once, then spread the grant proportionally
-    // (min to each group first; surplus distributed by max-min, extra before stack).
+    // Reimplementation of the CCP/M-86 3.1 load.sup group-allocation algorithm:
+    // sum min/max across all groups, allocate once, then spread proportionally
+    // (min to each group first; surplus by max-min, extra before stack).
     uint16_t extra_seg = 0, extra_par = 0, stack_seg = 0, stack_par = 0;
     uint16_t grant_seg = 0;
     {
@@ -576,21 +578,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         }
     }
 
-    // Real CCP/M-86 (Regnecentralen RC759, Piccoline XIOS 3.1, measured on
-    // physical-accurate MAME) does NOT hand a freestanding transient SS==DS.
-    // It gives it a small (96-byte / 6-paragraph) scratch stack in a segment
-    // BELOW the base/data segment (spec-mandated small default stack, DR
-    // CP/M-86 System Guide §4.1.2 -- programs are required to switch to their
-    // own SS=DS stack early in startup). emu2 used to just set SS=DS
-    // unconditionally, which is a *more lenient* environment than real
-    // hardware: a crt0 that forgets the SS=DS switch runs "by accident" under
-    // the old emu2 (SS==DS trivially) but corrupts memory on real CCP/M-86
-    // (a near pointer to an SS-relative stack local resolves against the
-    // wrong segment). Reproduce the same non-equal-segment hazard here so a
-    // program that passes under emu2 is real evidence, not a coincidence of
-    // a too-forgiving loader. Only applies when the CMD did not request its
-    // own explicit STACK group (type 4) -- that case already gets a real,
-    // separately-allocated segment above.
+    // Programs without an explicit STACK group get a small scratch stack in a
+    // separate segment below the data segment (CP/M-86 System Guide §4.1.2).
     if(!stack_seg)
     {
         uint16_t avail = 0;
@@ -599,10 +588,9 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         {
             stack_seg = scratch;
             stack_par = 6;
-            memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
+            if(!dirty_groups)
+                memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
         }
-        // If allocation fails (memory exhausted), fall through to the old
-        // SS=DS behavior below rather than failing the load.
     }
 
     // Auxiliary groups (CMD types 5..8) map to base-page descriptor slots 4..7
@@ -667,11 +655,18 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         }
     }
 
-    // P_LOAD fixup table: hdr[0x7F] bit 7 set, hdr[0x7D..0x7E] = file record
-    // number (x128 = byte offset).  Each 4-byte entry: byte0=(loc<<4|tgt) group
-    // numbers (1=CODE 2=DATA 3=EXTRA 4=STACK 5..8=AUX), bytes1-2=paragraph in
-    // loc group (LE), byte3=byte offset.  Add tgt's load segment to the word.
-    // Ends at first all-zero entry.
+    // hdr[0x7F] flags (see https://www.seasip.info/Cpm/cmdfile.html):
+    //   bit 7: fixup table present (implemented below)
+    //   bit 6: allocate 8087 even if not present  } not implemented;
+    //   bit 5: allocate 8087 only if present       } ignored silently
+    //   bit 4: file is an RSX, not a CMD           }
+    //
+    // Reimplementation of CCP/M-86 P_LOAD load-time relocation, derived from
+    // the CCP/M-86 source and validated with Digital Research C v1.1 / LINK86 v1.2.
+    // Fixup table: hdr[0x7D..0x7E] = file record number (x128 = byte offset).
+    // Each 4-byte entry: byte0=(loc<<4|tgt) group numbers (1=CODE 2=DATA 3=EXTRA
+    // 4=STACK 5..8=AUX), bytes1-2=paragraph in loc group (LE), byte3=byte offset.
+    // Add tgt's load segment to the word at that location.  Ends at first all-zero entry.
     if(hdr[0x7F] & 0x80)
     {
         uint16_t grp_seg[9] = {0};
@@ -1568,9 +1563,8 @@ void intr_cpm_bdos(void)
             seg = mem_alloc_segment(avail, &a2);
             got = avail;
         }
-        if(getenv("CPM86_TRACE_ALLOC"))
-            fprintf(stderr, "BDOS128: need=%u want=%u avail=%u got=%u seg=%u\n",
-                    need, want, avail, got, seg);
+        debug(debug_dos, "CP/M-86 M_ALLOC: need=%u want=%u avail=%u got=%u seg=%u\n",
+              need, want, avail, got, seg);
         if(seg && got >= need)
         {
             put16(mpb + 0, seg);
@@ -1597,12 +1591,12 @@ void intr_cpm_bdos(void)
         break;
     }
 
-    case 104: // T_SET: accept call, return success (clock is read-only).
+    case 104: // T_SET: accept the call but do not retro-set the clock.
         bdos_ret(0);
         break;
 
-    case 155: // T_SECONDS: like T_GET but also writes BCD seconds to DAT+4.
-    case 105: // T_GET: fills DAT at DS:DX; days since 1978-01-01, BCD h/m; AL=BCD sec.
+    case 155: // T_SECONDS: like T_GET but also stores BCD seconds at DAT+4.
+    case 105: // T_GET: Get Date and Time -> fills DAT at DS:DX, AL = seconds (BCD)
     {
         time_t now = time(0);
         struct tm *lt = localtime(&now);
@@ -1614,7 +1608,7 @@ void intr_cpm_bdos(void)
         memory[dat + 2] = ((lt->tm_hour / 10) << 4) | (lt->tm_hour % 10);
         memory[dat + 3] = ((lt->tm_min / 10) << 4) | (lt->tm_min % 10);
         if(func == 155)
-            memory[dat + 4] = bcd_sec;
+            memory[dat + 4] = bcd_sec; // T_SECONDS: extra seconds word at DAT+4
         debug(debug_dos, "CP/M get date/time: day %ld %02d:%02d:%02d\n", days,
               lt->tm_hour, lt->tm_min, lt->tm_sec);
         bdos_ret(bcd_sec);

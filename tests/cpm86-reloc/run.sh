@@ -28,6 +28,50 @@ EMU2="${EMU2:-$HERE/../../emu2}"
 [ -x "$EMU2" ] || { echo "SKIP: emu2 binary not found at $EMU2 (run 'make' first)"; exit 77; }
 
 fail=0
+
+# Read one byte from a file at a given offset; print as lowercase hex (no 0x).
+byte_at() { od -An -tx1 -j "$1" -N1 "$2" | tr -d ' \n'; }
+
+# check_header <cmd-file> <g0-type> <g1-type> <g1-has-data: 0|1> <reloc-bit: 0|1>
+# Checks CMD header group types and the relocation flag in hdr[0x7F].
+check_header() {
+    local f="$HERE/$1" g0_want="$2" g1_want="$3" data_want="$4" reloc_want="$5"
+    local ok=1
+
+    g0=$(byte_at 0 "$f")
+    if [ "$g0" != "$g0_want" ]; then
+        echo "FAIL  $1  group[0].type: got $g0, want $g0_want (CODE=01)"
+        ok=0
+    fi
+
+    g1=$(byte_at 9 "$f")
+    if [ "$g1" != "$g1_want" ]; then
+        echo "FAIL  $1  group[1].type: got $g1, want $g1_want (DATA=02)"
+        ok=0
+    fi
+
+    # group[1].length at bytes 10-11 (LE): non-zero iff the DATA group has content
+    g1lo=$(byte_at 10 "$f"); g1hi=$(byte_at 11 "$f")
+    has_data=$(( g1lo != 0 || g1hi != 0 ))
+    if [ "$has_data" != "$data_want" ]; then
+        echo "FAIL  $1  group[1] data: has_data=$has_data, want $data_want"
+        ok=0
+    fi
+
+    flags=$(byte_at 127 "$f")
+    reloc=$(( (0x$flags & 0x80) != 0 ? 1 : 0 ))
+    if [ "$reloc" != "$reloc_want" ]; then
+        echo "FAIL  $1  hdr[0x7F] reloc bit: got $reloc, want $reloc_want (flags=$flags)"
+        ok=0
+    fi
+
+    if [ "$ok" = 1 ]; then
+        echo "PASS  $1  header (g0=$g0 g1=$g1 data=$has_data reloc=$reloc)"
+    else
+        fail=1
+    fi
+}
+
 check() {                       # check <cmd-file> <expected-substring>
     local f="$HERE/$1" want="$2" out
     out="$("$EMU2" "$f" 2>/dev/null | tr -d '\r\000')"
@@ -39,8 +83,31 @@ check() {                       # check <cmd-file> <expected-substring>
     fi
 }
 
+check_load() {                  # check_load <cmd-file> -- load-smoke (no output expected)
+    local f="$HERE/$1"
+    "$EMU2" "$f" 2>/dev/null
+    local rc=$?
+    if [ "$rc" -le 128 ]; then
+        echo "PASS  $1  (loaded, exit rc=$rc)"
+    else
+        echo "FAIL  $1  crashed (rc=$rc)"
+        fail=1
+    fi
+}
+
+# FARMULTI: CODE group + DATA group (1-byte anchor), relocation table present
+check_header FARMULTI.CMD  01  02  1  1
+# FARPTR:   CODE group + DATA group (far-pointer table), relocation table present
+check_header FARPTR.CMD    01  02  1  1
+# FARRUN:   CODE group + DATA group (1-byte anchor), relocation table present
+check_header FARRUN.CMD    01  02  1  1
+# SPLIT:    CODE group only (8080 model, single group, data==0), relocation table present
+check_header SPLIT.CMD     01  00  0  1
+
 check FARMULTI.CMD OK!
 check FARPTR.CMD   OK!
+check FARRUN.CMD   A
+check_load SPLIT.CMD
 
 if [ "$fail" = 0 ]; then
     echo "P_LOAD relocation regression: ALL PASS"
