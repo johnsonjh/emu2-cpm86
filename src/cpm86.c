@@ -68,18 +68,13 @@ unsigned cpm86_tpa_kb_cli = 0;
 // size in KB, used by BOTH the .CMD loader's group grant (cpm86_load_cmd,
 // below) and dos.c's init_dos() MCB-pool sizing -- they must agree, or
 // runtime BDOS-128 calls could draw from a differently-sized pool than the
-// one the loader measured against at load time (see HANDOFF_farheap_bdos128.md).
-// Precedence: "-m" command line option > CPM86_TPA_KB env var > default.
+// one the loader measured against at load time.
+// Precedence: "-m" command line option > CPM86_TPA_KB env var > default (~640K).
 unsigned cpm86_get_tpa_kb(void)
 {
-    // Default = the RC759's MEASURED effective per-program TPA, not the 293K
-    // "bruger lager" the CCP/M-86 3.1 boot banner reports (banner is nominal;
-    // multitasking overhead -- console buffers, other processes, loader DMA --
-    // leaves less for a transient program's group allocation). Calibrated so
-    // emu2 reproduces the exact real-MAME boundary: Info-ZIP zip's deflate
-    // window/hash allocations fail with the same "Out of memory (window
-    // allocation)" message as the physical RC759 at this figure.
-    static const unsigned default_tpa_kb = 210;
+    // Default matches the standard DOS 640K arena.  Use -m or CPM86_TPA_KB to
+    // restrict to a smaller machine's real TPA.
+    static const unsigned default_tpa_kb = 640;
     if(cpm86_tpa_kb_cli)
         return cpm86_tpa_kb_cli;
     const char *e = getenv("CPM86_TPA_KB");
