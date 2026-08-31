@@ -33,6 +33,7 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
+          build-args: GIT_SHA=${{ github.sha }}
           outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest

@@ -16,6 +16,9 @@ void print_version(void)
 #ifdef __DATE__
            "  (Compiled " __DATE__ ")"
 #endif
+#ifdef GIT_SHA
+           "  [" GIT_SHA "]"
+#endif
            "\n");
 }
 
