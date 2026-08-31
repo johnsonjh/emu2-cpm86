@@ -16,12 +16,9 @@ reproduction with Open Watcom.
 | `SMALL.CMD`    | small (near CODE+DATA, no P_LOAD fixups)        | `OK!` | yes | `small.c` |
 | `LARGE.CMD`    | large (far code+data, far-pointer relocation)   | `OK!` | yes | `large.c` |
 
-### Not run under emu2
-
-| File | Reason | Source |
-|------|--------|--------|
-| `DRCFPTR.CMD` | Built by DR C 1.11 (LARGE, ~38 KB); requires DR C toolchain + MAME for verification | `drc_farptr.c` |
-| `FPTRMAME.CMD` | MAME-instrumented (signals pass/fail via port 0x2FE); not useful outside a MAME session | `farptr_mame.c` |
+MAME-only and DR C oracle sources (`drc_farptr.c`, `farptr_mame.c`,
+`DRCFPTR.CMD`, `FPTRMAME.CMD`) are not included here; they require
+toolchains or infrastructure outside the scope of emu2.
 
 ## Building oracles
 
@@ -39,10 +36,6 @@ make WATCOM_DOCKER=1
 `SPLIT.CMD` has no Makefile target: the 8080-model wlink flags that produce a
 genuine single-group layout (data descriptor == 0) are unclear; it is kept as
 a prebuilt load-smoke only.
-
-`DRCFPTR.CMD` and `FPTRMAME.CMD` are also prebuilts (not in the Makefile):
-`DRCFPTR` requires the DR C 1.11 + LINK86 1.2 toolchain; `FPTRMAME` embeds
-MAME-specific port signalling and is not useful outside a MAME-hosted session.
 
 ## Running
 
