@@ -59,21 +59,13 @@ struct cpm_group
 // Set once a CP/M-86 program is loaded (see cpm86.h).
 int cpm86_active = 0;
 
-// Command-line override for the CP/M-86 TPA size, set by main.c's "-m" option
-// (0 = not given on the command line; fall back to CPM86_TPA_KB env var, then
-// the built-in default).  See cpm86_get_tpa_kb() below.
+// TPA size override from "-m <kb>"; 0 = not set (see cpm86_get_tpa_kb).
 unsigned cpm86_tpa_kb_cli = 0;
 
-// The single source of truth for the CP/M-86 TPA (transient program area)
-// size in KB, used by BOTH the .CMD loader's group grant (cpm86_load_cmd,
-// below) and dos.c's init_dos() MCB-pool sizing -- they must agree, or
-// runtime BDOS-128 calls could draw from a differently-sized pool than the
-// one the loader measured against at load time.
-// Precedence: "-m" command line option > CPM86_TPA_KB env var > default (~640K).
+// TPA size in KB: "-m" > CPM86_TPA_KB env var > ~640K default.
+// Used by both the CMD loader and dos.c MCB init so they agree on one ceiling.
 unsigned cpm86_get_tpa_kb(void)
 {
-    // Default matches the standard DOS 640K arena.  Use -m or CPM86_TPA_KB to
-    // restrict to a smaller machine's real TPA.
     static const unsigned default_tpa_kb = 640;
     if(cpm86_tpa_kb_cli)
         return cpm86_tpa_kb_cli;
@@ -457,8 +449,7 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(!code)
         return 0;
 
-    // CPM86_POISON=<byte>: fill free TPA with that byte before loading so
-    // uninitialised or over-committed memory reads as garbage, not zero.
+    // CPM86_POISON=<byte>: fill free memory before loading (debug aid).
     int dirty_groups = 0;
     {
         const char *pe = getenv("CPM86_POISON");
@@ -482,28 +473,14 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(data && data->max && data->max >= data->length && data->max < 0x1000)
         data_par = data->max;
 
-    // Extra (ES) and stack (SS) groups + overall non-abs memory grant.
-    // FAITHFUL to genuine CCP/M-86 2.0
-    // kern/load.sup: the loader does NOT hand each group its own g_max
-    // independently. It sums every group's min and max, does ONE allocation of
-    // the total bounded by the free TPA (>= total_min or "insufficient memory"),
-    // then SPREADS the actual allocation -- min to everybody first, then the
-    // surplus proportionally among the groups that want more (capped at
-    // max-min). Each group's BASE-PAGE length is that finally-distributed size
-    // (load.sup init_base writes ldt_min after the spread), NOT its raw g_max.
-    //
-    // emu2 used to be too generous: it always granted the full g_max, so a
-    // program that assumed the loader pre-reserved its Extra g_max (e.g. a
-    // Watcom far heap) "worked" here but would get only its proportional share
-    // on a machine with a smaller TPA.  Reproduce the real distribution,
-    // bounded by the configurable TPA (CPM86_TPA_KB / -m), so programs that
-    // pass here are genuine evidence of correctness.
+    // Allocate all groups in one combined grant (load.sup style): sum min/max
+    // across all groups, allocate once, then spread the grant proportionally
+    // (min to each group first; surplus distributed by max-min, extra before stack).
     uint16_t extra_seg = 0, extra_par = 0, stack_seg = 0, stack_par = 0;
     uint16_t grant_seg = 0;
     {
         if(model_8080 && code_par < 0x1000)
             code_par = 0x1000;
-        // TPA size: "-m" CLI option > CPM86_TPA_KB env var > built-in default (~640K).
         unsigned tpa_kb = cpm86_get_tpa_kb();
         uint32_t tpa_paras = (uint32_t)tpa_kb * 64;   // 1 KB = 64 paragraphs
         uint32_t fixed = (uint32_t)code_par + (model_8080 ? 0 : data_par);
@@ -520,16 +497,6 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
                   (unsigned)tpa_paras);
             return 0;
         }
-        // Ask for the full want (capped at the TPA figure); the underlying MCB
-        // pool (sized to CPM86_TPA_KB in dos.c's mcb_init call) is itself the
-        // real ceiling, so a request that exceeds what's ACTUALLY free (e.g.
-        // because the loader's own PSP/environment already ate a few
-        // paragraphs of the same TPA) must fall back to the largest block that
-        // still covers total_min -- exactly the same "ask max, then take
-        // largest-that-fits-min" pattern BDOS-128 (M_ALLOC, case 128 below)
-        // uses for a program's later runtime allocations. Using the grant's
-        // TRUE size (not the raw TPA figure) for the surplus spread matches
-        // load.sup: the spread happens AFTER the combined f_malloc returns.
         uint32_t want = total_max < tpa_paras ? total_max : tpa_paras;
         uint16_t gotmax = 0;
         grant_seg = mem_alloc_segment((uint16_t)want, &gotmax);
@@ -538,16 +505,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
             grant = want;
         else if(gotmax >= total_min)
         {
-            // mem_alloc_segment's *max output is reset to 0 internally and only
-            // updated on a size-mismatch/failure path -- an EXACT-fit success
-            // (this retry requests precisely `gotmax` paragraphs) leaves it at
-            // 0. Capture the requested amount in its own variable (`retry_par`)
-            // BEFORE the call instead of reading it back out of the same
-            // variable the call just (re)zeroed -- aliasing `gotmax` as both
-            // the request and the result previously made `grant` read back 0,
-            // underflowing `surplus` below and corrupting the Extra group's
-            // declared size (base-page 0x0C) to the full ex_max instead of the
-            // correctly-capped value.
+            // Capture gotmax before the retry call: mem_alloc_segment resets
+            // *max on an exact-fit success, so reading it back would give 0.
             uint16_t retry_par = gotmax;
             uint16_t discard = 0;
             grant_seg = mem_alloc_segment(retry_par, &discard);
@@ -561,8 +520,7 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
             return 0;
         }
         uint32_t surplus = grant - total_min;
-        // Spread the surplus over the groups that want more (max>min), load.sup
-        // style: even share, capped at each group's max-min, iterated.
+        // Spread surplus: even share per group wanting more, capped at max-min.
         uint16_t ex_par = ex_min, st_par = st_min;
         int nrels = (ex_max > ex_min) + (st_max > st_min);
         if(nrels && surplus)
@@ -590,12 +548,9 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         extra_par = (extra && ex_par) ? ex_par : 0;
         stack_par = (stack && st_par) ? st_par : 0;
 
-        // The grant itself was already sized as fixed+extra_par+stack_par
-        // (mem_alloc_segment above), so groups can be placed directly -- no
-        // second allocation call needed.
     }
 
-    // Place groups contiguously inside the one non-abs grant (load.sup style).
+    // Place groups contiguously within the grant.
     {
         uint16_t cur = grant_seg;
         cpm_code_seg = cur;
@@ -1249,12 +1204,11 @@ void intr_cpm_bdos(void)
     unsigned func = cpuGetCX() & 0xFF;
     unsigned dx = cpuGetDX();
 
-    // CP/M-86 System Guide S4.1: BDOS preserves SI/DI/BP/DS/SS (PL/M-86 contract).
-    // ES is not saved (double-word returns use ES:BX).
+    // BDOS preserves SI/DI/BP/DS/SS (CP/M-86 System Guide S4.1); not ES.
     unsigned saved_si = cpuGetSI(), saved_di = cpuGetDI(), saved_bp = cpuGetBP();
     unsigned saved_ds = cpuGetDS(), saved_ss = cpuGetSS();
-    // Console-output functions (2, 9, 6-out) return no value; save AX/BX/CX/DX
-    // so bdos_ret() clobbers don't corrupt the caller's registers.
+    // Console-output functions (2, 9, 6-out) have no return value; save all
+    // regs so bdos_ret() doesn't clobber the caller's AX/BX/CX/DX.
     unsigned saved_ax = cpuGetAX(), saved_bx = cpuGetBX();
     unsigned saved_cx = cpuGetCX(), saved_dx = cpuGetDX();
     int no_return = (func == 2) || (func == 9) ||
@@ -1636,7 +1590,7 @@ void intr_cpm_bdos(void)
         break;
     }
 
-    // Restore preserved registers; P_CHAIN (47) is exempt (it loads a new program).
+    // Restore caller's preserved registers (P_CHAIN loads a new program; skip).
     if(func != 47)
     {
         cpuSetSI(saved_si);
