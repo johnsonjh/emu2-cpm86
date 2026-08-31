@@ -2801,10 +2801,8 @@ void init_dos(int argc, char **argv)
     // We limit here memory to less than 512K to fix some old programs
     // that check memori using "JLE" instead of "JBE".
     //
-    // CP/M-86: when an explicit TPA limit is given (-m / CPM86_TPA_KB), cap
-    // the MCB pool to that size so both the load-time group grant in
-    // cpm86_load_cmd() and runtime BDOS-128 (M_ALLOC) draw from the same
-    // ceiling.  Without an explicit limit the standard DOS arena is used.
+    // CP/M-86: cap the MCB pool to the TPA size when -m / CPM86_TPA_KB is set,
+    // so loader and runtime M_ALLOC draw from the same ceiling.
     {
         int cpm86_will_run = 0;
         FILE *pf = argc > 0 ? fopen(argv[0], "rb") : 0;
