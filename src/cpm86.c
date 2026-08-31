@@ -475,9 +475,9 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(data && data->max && data->max >= data->length && data->max < 0x1000)
         data_par = data->max;
 
-    // Allocate all groups in one combined grant (load.sup style): sum min/max
-    // across all groups, allocate once, then spread the grant proportionally
-    // (min to each group first; surplus distributed by max-min, extra before stack).
+    // Reimplementation of the CCP/M-86 3.1 load.sup group-allocation algorithm:
+    // sum min/max across all groups, allocate once, then spread proportionally
+    // (min to each group first; surplus by max-min, extra before stack).
     uint16_t extra_seg = 0, extra_par = 0, stack_seg = 0, stack_par = 0;
     uint16_t grant_seg = 0;
     {
