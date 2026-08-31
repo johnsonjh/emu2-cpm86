@@ -475,9 +475,9 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(data && data->max && data->max >= data->length && data->max < 0x1000)
         data_par = data->max;
 
-    // Allocate all groups in one combined grant (load.sup style): sum min/max
-    // across all groups, allocate once, then spread the grant proportionally
-    // (min to each group first; surplus distributed by max-min, extra before stack).
+    // Reimplementation of the CCP/M-86 3.1 load.sup group-allocation algorithm:
+    // sum min/max across all groups, allocate once, then spread proportionally
+    // (min to each group first; surplus by max-min, extra before stack).
     uint16_t extra_seg = 0, extra_par = 0, stack_seg = 0, stack_par = 0;
     uint16_t grant_seg = 0;
     {
@@ -641,8 +641,11 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
             fread(memory + (uint32_t)extra_seg * 16, 1, (uint32_t)extra->length * 16, f);
         }
     }
-    if(stack_seg)
+    if(stack_seg && stack)
     {
+        // (Our spec-default scratch stack, when stack==0, already memset its
+        // own segment above at allocation time -- this block only applies to
+        // a CMD-declared STACK group, which has real file image data to load.)
         if(!dirty_groups)
             memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
         if(stack->length)
@@ -652,11 +655,18 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         }
     }
 
-    // P_LOAD fixup table: hdr[0x7F] bit 7 set, hdr[0x7D..0x7E] = file record
-    // number (x128 = byte offset).  Each 4-byte entry: byte0=(loc<<4|tgt) group
-    // numbers (1=CODE 2=DATA 3=EXTRA 4=STACK 5..8=AUX), bytes1-2=paragraph in
-    // loc group (LE), byte3=byte offset.  Add tgt's load segment to the word.
-    // Ends at first all-zero entry.
+    // hdr[0x7F] flags (see https://www.seasip.info/Cpm/cmdfile.html):
+    //   bit 7: fixup table present (implemented below)
+    //   bit 6: allocate 8087 even if not present  } not implemented;
+    //   bit 5: allocate 8087 only if present       } ignored silently
+    //   bit 4: file is an RSX, not a CMD           }
+    //
+    // Reimplementation of CCP/M-86 P_LOAD load-time relocation, derived from
+    // the CCP/M-86 source and validated with Digital Research C v1.1 / LINK86 v1.2.
+    // Fixup table: hdr[0x7D..0x7E] = file record number (x128 = byte offset).
+    // Each 4-byte entry: byte0=(loc<<4|tgt) group numbers (1=CODE 2=DATA 3=EXTRA
+    // 4=STACK 5..8=AUX), bytes1-2=paragraph in loc group (LE), byte3=byte offset.
+    // Add tgt's load segment to the word at that location.  Ends at first all-zero entry.
     if(hdr[0x7F] & 0x80)
     {
         uint16_t grp_seg[9] = {0};
@@ -776,19 +786,27 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     cpuSetIP(model_8080 ? 0x100 : 0);
     cpuSetDS(cpm_base_seg);
     cpuSetES(cpm_base_seg);
-    cpuSetSS(cpm_base_seg);
-    // Lay the far "exit" address (PSP:0000 = INT 20h) at the very top of the
-    // stack -- at sp_top and sp_top+2 -- and enter with SP = sp_top.  sp_top is
-    // also base-page word 6 (the stack top the program reads), so the address
-    // sits at the program's stack ceiling: a plain "RETF to exit" pops it, and
-    // so does a program that resets SP from base-page 6 and then RETFs (e.g. CL,
-    // LIBR), because its stack grows DOWN from sp_top and never overwrites
-    // sp_top/sp_top+2.  (Pushing the address *below* sp_top, as before, put it
-    // inside such a program's stack, which clobbered it and sent the exit RETF
-    // into garbage -- an infinite runaway.)
-    put16(bp + sp_top + 0, 0);   // exit IP  -> PSP:0000 = INT 20h
-    put16(bp + sp_top + 2, psp); // exit CS  = PSP segment
-    cpuSetSP(sp_top);
+    // SS: NOT cpm_base_seg. stack_seg is now always set (either the CMD's own
+    // declared STACK group, or the spec-default scratch stack allocated
+    // above), so the program starts on a segment genuinely separate from DS,
+    // exactly as measured on real CCP/M-86. A conforming program's own crt0
+    // is responsible for switching to SS=DS with SP from base-page word 6
+    // (the "sp_top" field below, still base_seg-relative -- unchanged) as its
+    // first act; this entry stack only has to survive up to that switch.
+    uint16_t ss_seg  = stack_seg;
+    uint32_t ssbp    = (uint32_t)ss_seg * 16;
+    uint16_t ss_size = (uint16_t)((uint32_t)stack_par * 16);
+    uint16_t entry_sp = (uint16_t)(ss_size - 4); // room for the far exit addr
+    cpuSetSS(ss_seg);
+    // Lay the far "exit" address (PSP:0000 = INT 20h) at the top of this
+    // entry stack and enter with SP there: a plain "RETF to exit" pops it.
+    // (Historical note, still true for programs that reload SS=DS themselves:
+    // sp_top/bp+sp_top below is the DS-relative "top of stack" a program
+    // reads from base-page word 6 once it has done that switch -- it is a
+    // different address space from the entry-time SS used here.)
+    put16(ssbp + entry_sp + 0, 0);   // exit IP  -> PSP:0000 = INT 20h
+    put16(ssbp + entry_sp + 2, psp); // exit CS  = PSP segment
+    cpuSetSP(entry_sp);
     // 8080-model / CP/M-80-heritage programs terminate with a near RET to the
     // warm-boot vector (offset 0), which (unlike a far RETF to PSP:0000) stays in
     // CS and lands at code:0000.  In the 8080 model the code entry is 0x100, so
@@ -1545,9 +1563,8 @@ void intr_cpm_bdos(void)
             seg = mem_alloc_segment(avail, &a2);
             got = avail;
         }
-        if(getenv("CPM86_TRACE_ALLOC"))
-            fprintf(stderr, "BDOS128: need=%u want=%u avail=%u got=%u seg=%u\n",
-                    need, want, avail, got, seg);
+        debug(debug_dos, "CP/M-86 M_ALLOC: need=%u want=%u avail=%u got=%u seg=%u\n",
+              need, want, avail, got, seg);
         if(seg && got >= need)
         {
             put16(mpb + 0, seg);

@@ -16,6 +16,9 @@ void print_version(void)
 #ifdef __DATE__
            "  (Compiled " __DATE__ ")"
 #endif
+#ifdef GIT_SHA
+           "  [" GIT_SHA "]"
+#endif
            "\n");
 }
 
@@ -58,11 +61,15 @@ NORETURN void print_usage(void)
            "\t\t      LRBC byte count but do not trim host files to it.\n"
            "  %-18s  Use the ISX last-record byte count convention (unused bytes)\n"
            "\t\t      instead of DOS Plus (used bytes); default off (DOS Plus).\n"
-           "  %-18s  CP/M-86 console emulation (VT52/colour); set 0 to disable.\n",
+           "  %-18s  CP/M-86 console emulation (VT52/colour); set 0 to disable.\n"
+           "  %-18s  CP/M-86 TPA size in KB; same as -m.\n"
+           "  %-18s  Fill free memory with <byte> before load (debug).\n"
+           "  %-18s  Fill free memory with 0xFF before load (debug).\n",
            prog_name, ENV_DBG_NAME, ENV_DBG_OPT, ENV_PROGNAME, ENV_DEF_DRIVE, ENV_CWD,
            ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_APPEND, ENV_DOSVER, ENV_ROWS,
            "EMU2_CPM_DISK", "EMU2_CPM_FREE", "EMU2_CPM_PLUS", ENV_CPMVER,
-           ENV_LRBC_NOTRUNC, ENV_CPM_ISXLRBC, "EMU2_VT52");
+           ENV_LRBC_NOTRUNC, ENV_CPM_ISXLRBC, "EMU2_VT52",
+           "CPM86_TPA_KB", "CPM86_POISON", "CPM86_DIRTY_GROUPS");
     exit(EXIT_SUCCESS);
 }
 
