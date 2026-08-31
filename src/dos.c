@@ -561,9 +561,6 @@ static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
     if(write)
         handle_written[get_fcb_handle()] = 1;
     unsigned n = write ? fwrite(buf, 1, rsize, f) : fread(buf, 1, rsize, f);
-    // CP/M-86 random writes are write-through; flush so another FCB or stat() sees the new data.
-    if(write && n)
-        fflush(f);
     // Update random and block positions
     if(update)
     {
@@ -2801,18 +2798,8 @@ void init_dos(int argc, char **argv)
     // We limit here memory to less than 512K to fix some old programs
     // that check memori using "JLE" instead of "JBE".
     //
-    // CP/M-86: shrink the WHOLE arena to the emulated machine's real TPA
-    // (CPM86_TPA_KB, default 210 -- see cpm86.c) instead of the generous
-    // DOS-style 512K/640K pool. This matters beyond the initial program-load
-    // group grant: Concurrent CP/M-86's BDOS-128/130 (M_ALLOC/M_FREE, used by
-    // farheap.c's __AllocSeg at *runtime*, not just at load) draws from this
-    // same free-MCB pool via mem_alloc_segment(). Previously only the
-    // load-time group allocation in cpm86.c was capped to the TPA figure --
-    // a program's later runtime BDOS-128 calls (e.g. Info-ZIP zip's deflate
-    // window malloc) could still see the full ~512-640K DOS-sized arena and
-    // succeed where the real, much smaller RC759 TPA would fail. Detect CP/M-86
-    // mode by peeking at the program file BEFORE sizing the pool so the cap
-    // applies uniformly to load-time AND runtime allocation.
+    // CP/M-86: cap the MCB pool to the TPA size when -m / CPM86_TPA_KB is set,
+    // so loader and runtime M_ALLOC draw from the same ceiling.
     {
         int cpm86_will_run = 0;
         FILE *pf = argc > 0 ? fopen(argv[0], "rb") : 0;
@@ -2821,15 +2808,14 @@ void init_dos(int argc, char **argv)
             cpm86_will_run = cpm86_detect(pf, argv[0]);
             fclose(pf);
         }
-        if(cpm86_will_run)
+        int tpa_explicit = cpm86_will_run &&
+                           (cpm86_tpa_kb_cli || getenv("CPM86_TPA_KB"));
+        if(tpa_explicit)
         {
-            // Same precedence/default as cpm86_load_cmd()'s group grant --
-            // see cpm86_get_tpa_kb() -- so the load-time grant and this
-            // runtime MCB pool are always sized identically.
             unsigned tpa_kb = cpm86_get_tpa_kb();
             uint32_t tpa_paras = (uint32_t)tpa_kb * 64; // 1 KB = 64 paragraphs
             if(tpa_paras > 0xFF00)
-                tpa_paras = 0xFF00; // keep mem_end a valid uint16_t segment
+                tpa_paras = 0xFF00;
             mcb_init(0x80, (uint16_t)(0x80 + tpa_paras));
         }
         else if(getenv(ENV_LOWMEM))

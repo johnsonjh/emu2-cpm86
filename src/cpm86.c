@@ -11,7 +11,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <inttypes.h>
 #include <time.h>
 #include <poll.h>
 #include <unistd.h>
@@ -60,14 +59,14 @@ struct cpm_group
 // Set once a CP/M-86 program is loaded (see cpm86.h).
 int cpm86_active = 0;
 
-// -m CLI override for TPA size (0 = not set; falls back to CPM86_TPA_KB env var).
+// TPA size override from "-m <kb>"; 0 = not set (see cpm86_get_tpa_kb).
 unsigned cpm86_tpa_kb_cli = 0;
 
-// Canonical TPA size in KB; shared by the loader and dos.c MCB-pool init.
-// Precedence: -m CLI > CPM86_TPA_KB env var > default (210 = RC759 measured).
+// TPA size in KB: "-m" > CPM86_TPA_KB env var > ~640K default.
+// Used by both the CMD loader and dos.c MCB init so they agree on one ceiling.
 unsigned cpm86_get_tpa_kb(void)
 {
-    static const unsigned default_tpa_kb = 210;
+    static const unsigned default_tpa_kb = 640;
     if(cpm86_tpa_kb_cli)
         return cpm86_tpa_kb_cli;
     const char *e = getenv("CPM86_TPA_KB");
@@ -450,12 +449,7 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(!code)
         return 0;
 
-    // Faithful-mode dirty RAM: before carving the program's groups, poison the
-    // free TPA so any memory the program is handed but does not initialise -- or
-    // OVER-reads past its real grant (e.g. a far-heap that over-commits past the
-    // loader's spread Extra allocation) -- reads back garbage, as on real
-    // CCP/M-86, instead of emu2's zero BSS arena.  Opt-in via CPM86_POISON=<byte>
-    // (default off) so existing tests are unaffected.
+    // CPM86_POISON=<byte> / CPM86_DIRTY_GROUPS: fill free memory before loading.
     int dirty_groups = 0;
     {
         const char *dg = getenv("CPM86_DIRTY_GROUPS");
@@ -465,7 +459,7 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         if(pe && *pe)
             mem_poison_free((uint8_t)strtoul(pe, 0, 0));
         else if(dirty_groups)
-            mem_poison_free(0xFF); // closer to real CCP/M dirty-RAM behavior
+            mem_poison_free(0xFF);
     }
 
     // --- Allocate memory for the groups (paragraphs) ------------------------
@@ -481,15 +475,14 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(data && data->max && data->max >= data->length && data->max < 0x1000)
         data_par = data->max;
 
-    // Allocate groups faithfully: try g_max first, fall back to g_min, spread
-    // surplus proportionally (mirrors CCP/M-86 2.0 load.sup), bounded by TPA.
+    // Allocate all groups in one combined grant (load.sup style): sum min/max
+    // across all groups, allocate once, then spread the grant proportionally
+    // (min to each group first; surplus distributed by max-min, extra before stack).
     uint16_t extra_seg = 0, extra_par = 0, stack_seg = 0, stack_par = 0;
     uint16_t grant_seg = 0;
     {
         if(model_8080 && code_par < 0x1000)
             code_par = 0x1000;
-        // TPA size: "-m" CLI option > CPM86_TPA_KB env var > built-in default
-        // matching real MAME -- see cpm86_get_tpa_kb() for the full rationale.
         unsigned tpa_kb = cpm86_get_tpa_kb();
         uint32_t tpa_paras = (uint32_t)tpa_kb * 64;   // 1 KB = 64 paragraphs
         uint32_t fixed = (uint32_t)code_par + (model_8080 ? 0 : data_par);
@@ -506,16 +499,6 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
                   (unsigned)tpa_paras);
             return 0;
         }
-        // Ask for the full want (capped at the TPA figure); the underlying MCB
-        // pool (sized to CPM86_TPA_KB in dos.c's mcb_init call) is itself the
-        // real ceiling, so a request that exceeds what's ACTUALLY free (e.g.
-        // because the loader's own PSP/environment already ate a few
-        // paragraphs of the same TPA) must fall back to the largest block that
-        // still covers total_min -- exactly the same "ask max, then take
-        // largest-that-fits-min" pattern BDOS-128 (M_ALLOC, case 128 below)
-        // uses for a program's later runtime allocations. Using the grant's
-        // TRUE size (not the raw TPA figure) for the surplus spread matches
-        // load.sup: the spread happens AFTER the combined f_malloc returns.
         uint32_t want = total_max < tpa_paras ? total_max : tpa_paras;
         uint16_t gotmax = 0;
         grant_seg = mem_alloc_segment((uint16_t)want, &gotmax);
@@ -524,18 +507,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
             grant = want;
         else if(gotmax >= total_min)
         {
-            // mem_alloc_segment's *max output is reset to 0 internally and only
-            // updated on a size-mismatch/failure path -- an EXACT-fit success
-            // (this retry requests precisely `gotmax` paragraphs) leaves it at
-            // 0. Capture the requested amount in its own variable (`retry_par`)
-            // BEFORE the call instead of reading it back out of the same
-            // variable the call just (re)zeroed -- aliasing `gotmax` as both
-            // the request and the result previously made `grant` read back 0,
-            // underflowing `surplus` below and corrupting the Extra group's
-            // declared size (base-page 0x0C) to the full ex_max instead of the
-            // correctly TPA-capped value (found via farheap_smalltest 2026-08-25:
-            // reported "kb=720" static-carve grant from a corrupted ~960K Extra
-            // length, on a pool actually capped to ~210K).
+            // Capture gotmax before the retry call: mem_alloc_segment resets
+            // *max on an exact-fit success, so reading it back would give 0.
             uint16_t retry_par = gotmax;
             uint16_t discard = 0;
             grant_seg = mem_alloc_segment(retry_par, &discard);
@@ -549,8 +522,7 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
             return 0;
         }
         uint32_t surplus = grant - total_min;
-        // Spread the surplus over the groups that want more (max>min), load.sup
-        // style: even share, capped at each group's max-min, iterated.
+        // Spread surplus: even share per group wanting more, capped at max-min.
         uint16_t ex_par = ex_min, st_par = st_min;
         int nrels = (ex_max > ex_min) + (st_max > st_min);
         if(nrels && surplus)
@@ -578,12 +550,9 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         extra_par = (extra && ex_par) ? ex_par : 0;
         stack_par = (stack && st_par) ? st_par : 0;
 
-        // The grant itself was already sized as fixed+extra_par+stack_par
-        // (mem_alloc_segment above), so groups can be placed directly -- no
-        // second allocation call needed.
     }
 
-    // Place groups contiguously inside the one non-abs grant (load.sup style).
+    // Place groups contiguously within the grant.
     {
         uint16_t cur = grant_seg;
         cpm_code_seg = cur;
@@ -609,21 +578,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         }
     }
 
-    // Real CCP/M-86 (Regnecentralen RC759, Piccoline XIOS 3.1, measured on
-    // physical-accurate MAME) does NOT hand a freestanding transient SS==DS.
-    // It gives it a small (96-byte / 6-paragraph) scratch stack in a segment
-    // BELOW the base/data segment (spec-mandated small default stack, DR
-    // CP/M-86 System Guide §4.1.2 -- programs are required to switch to their
-    // own SS=DS stack early in startup). emu2 used to just set SS=DS
-    // unconditionally, which is a *more lenient* environment than real
-    // hardware: a crt0 that forgets the SS=DS switch runs "by accident" under
-    // the old emu2 (SS==DS trivially) but corrupts memory on real CCP/M-86
-    // (a near pointer to an SS-relative stack local resolves against the
-    // wrong segment). Reproduce the same non-equal-segment hazard here so a
-    // program that passes under emu2 is real evidence, not a coincidence of
-    // a too-forgiving loader. Only applies when the CMD did not request its
-    // own explicit STACK group (type 4) -- that case already gets a real,
-    // separately-allocated segment above.
+    // Programs without an explicit STACK group get a small scratch stack in a
+    // separate segment below the data segment (CP/M-86 System Guide §4.1.2).
     if(!stack_seg)
     {
         uint16_t avail = 0;
@@ -635,8 +591,6 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
             if(!dirty_groups)
                 memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
         }
-        // If allocation fails (memory exhausted), fall through to the old
-        // SS=DS behavior below rather than failing the load.
     }
 
     // Auxiliary groups (CMD types 5..8) map to base-page descriptor slots 4..7
@@ -687,11 +641,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
             fread(memory + (uint32_t)extra_seg * 16, 1, (uint32_t)extra->length * 16, f);
         }
     }
-    if(stack_seg && stack)
+    if(stack_seg)
     {
-        // (Our spec-default scratch stack, when stack==0, already memset its
-        // own segment above at allocation time -- this block only applies to
-        // a CMD-declared STACK group, which has real file image data to load.)
         if(!dirty_groups)
             memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
         if(stack->length)
@@ -825,27 +776,19 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     cpuSetIP(model_8080 ? 0x100 : 0);
     cpuSetDS(cpm_base_seg);
     cpuSetES(cpm_base_seg);
-    // SS: NOT cpm_base_seg. stack_seg is now always set (either the CMD's own
-    // declared STACK group, or the spec-default scratch stack allocated
-    // above), so the program starts on a segment genuinely separate from DS,
-    // exactly as measured on real CCP/M-86. A conforming program's own crt0
-    // is responsible for switching to SS=DS with SP from base-page word 6
-    // (the "sp_top" field below, still base_seg-relative -- unchanged) as its
-    // first act; this entry stack only has to survive up to that switch.
-    uint16_t ss_seg  = stack_seg;
-    uint32_t ssbp    = (uint32_t)ss_seg * 16;
-    uint16_t ss_size = (uint16_t)((uint32_t)stack_par * 16);
-    uint16_t entry_sp = (uint16_t)(ss_size - 4); // room for the far exit addr
-    cpuSetSS(ss_seg);
-    // Lay the far "exit" address (PSP:0000 = INT 20h) at the top of this
-    // entry stack and enter with SP there: a plain "RETF to exit" pops it.
-    // (Historical note, still true for programs that reload SS=DS themselves:
-    // sp_top/bp+sp_top below is the DS-relative "top of stack" a program
-    // reads from base-page word 6 once it has done that switch -- it is a
-    // different address space from the entry-time SS used here.)
-    put16(ssbp + entry_sp + 0, 0);   // exit IP  -> PSP:0000 = INT 20h
-    put16(ssbp + entry_sp + 2, psp); // exit CS  = PSP segment
-    cpuSetSP(entry_sp);
+    cpuSetSS(cpm_base_seg);
+    // Lay the far "exit" address (PSP:0000 = INT 20h) at the very top of the
+    // stack -- at sp_top and sp_top+2 -- and enter with SP = sp_top.  sp_top is
+    // also base-page word 6 (the stack top the program reads), so the address
+    // sits at the program's stack ceiling: a plain "RETF to exit" pops it, and
+    // so does a program that resets SP from base-page 6 and then RETFs (e.g. CL,
+    // LIBR), because its stack grows DOWN from sp_top and never overwrites
+    // sp_top/sp_top+2.  (Pushing the address *below* sp_top, as before, put it
+    // inside such a program's stack, which clobbered it and sent the exit RETF
+    // into garbage -- an infinite runaway.)
+    put16(bp + sp_top + 0, 0);   // exit IP  -> PSP:0000 = INT 20h
+    put16(bp + sp_top + 2, psp); // exit CS  = PSP segment
+    cpuSetSP(sp_top);
     // 8080-model / CP/M-80-heritage programs terminate with a near RET to the
     // warm-boot vector (offset 0), which (unlike a far RETF to PSP:0000) stays in
     // CS and lands at code:0000.  In the 8080 model the code entry is 0x100, so
@@ -1273,65 +1216,16 @@ static int cpm_chain(void)
     return 1;
 }
 
-// Deterministic emulated wall clock for the CP/M-86 BDOS time functions.
-// Absolute time = the host wall clock captured once at first use (so DATE.CMD
-// shows the real current date) PLUS the emulated seconds elapsed since, derived
-// from the monotonic instruction counter: seconds = instructions / CLOCK_HZ.
-// This makes a self-timing benchmark's elapsed *differences* proportional to
-// the work the emulated 8086 does and fully reproducible, instead of tracking
-// the host wall clock (which barely advances while emu2 races through the whole
-// benchmark in a fraction of a real second).  Tune the rate with the env var
-// EMU2_CPM86_CLOCK_HZ (instructions per emulated second; default 300000).
-static uint64_t cpm_clock_hz(void)
-{
-    static uint64_t hz = 0;
-    if(!hz)
-    {
-        const char *e = getenv("EMU2_CPM86_CLOCK_HZ");
-        long v = e ? strtol(e, 0, 0) : 0;
-        hz = (v > 0) ? (uint64_t)v : 300000;
-    }
-    return hz;
-}
-
-// Fill the CP/M-86 DAT (date-and-time) structure at DS:dx with the current
-// emulated time and return the seconds as a BCD byte (for AL).  When
-// with_seconds is true (T_SECONDS, fn 155) the seconds are ALSO stored at
-// DAT offset 4; T_GET (fn 105) leaves offset 4 untouched.
-static uint8_t cpm_fill_tod(unsigned dx, int with_seconds)
-{
-    static time_t base = 0;
-    if(!base)
-        base = time(0);
-    time_t now = base + (time_t)(cpuGetInstructionCount() / cpm_clock_hz());
-    struct tm *lt = localtime(&now);
-    struct tm epoch = {.tm_year = 78, .tm_mon = 0, .tm_mday = 1, .tm_hour = 12};
-    long days = (long)(difftime(now, mktime(&epoch)) / 86400) + 1;
-    uint8_t bcd_sec = ((lt->tm_sec / 10) << 4) | (lt->tm_sec % 10);
-    uint32_t dat = cpuGetAddrDS(dx);
-    memory[dat] = days & 0xFF;
-    memory[dat + 1] = (days >> 8) & 0xFF;
-    memory[dat + 2] = ((lt->tm_hour / 10) << 4) | (lt->tm_hour % 10);
-    memory[dat + 3] = ((lt->tm_min / 10) << 4) | (lt->tm_min % 10);
-    if(with_seconds)
-        memory[dat + 4] = bcd_sec;
-    debug(debug_dos, "CP/M %s: day %ld %02d:%02d:%02d (ins=%" PRIu64 ")\n",
-          with_seconds ? "T_SECONDS" : "get date/time", days, lt->tm_hour,
-          lt->tm_min, lt->tm_sec, cpuGetInstructionCount());
-    return bcd_sec;
-}
-
 void intr_cpm_bdos(void)
 {
     unsigned func = cpuGetCX() & 0xFF;
     unsigned dx = cpuGetDX();
 
-    // CP/M-86 System Guide S4.1: BDOS preserves SI/DI/BP/DS/SS (PL/M-86 contract).
-    // ES is not saved (double-word returns use ES:BX).
+    // BDOS preserves SI/DI/BP/DS/SS (CP/M-86 System Guide S4.1); not ES.
     unsigned saved_si = cpuGetSI(), saved_di = cpuGetDI(), saved_bp = cpuGetBP();
     unsigned saved_ds = cpuGetDS(), saved_ss = cpuGetSS();
-    // Console-output functions (2, 9, 6-out) return no value; save AX/BX/CX/DX
-    // so bdos_ret() clobbers don't corrupt the caller's registers.
+    // Console-output functions (2, 9, 6-out) have no return value; save all
+    // regs so bdos_ret() doesn't clobber the caller's AX/BX/CX/DX.
     unsigned saved_ax = cpuGetAX(), saved_bx = cpuGetBX();
     unsigned saved_cx = cpuGetCX(), saved_dx = cpuGetDX();
     int no_return = (func == 2) || (func == 9) ||
@@ -1637,22 +1531,15 @@ void intr_cpm_bdos(void)
         cpuSetCX(3);
         break;
 
-    case 128: // M_ALLOC: Concurrent CP/M-86 memory allocation.  Unlike the
-        // CP/M-86 MCB calls (53-57), this is the memory API a real Concurrent
-        // CP/M-86 (RC759, CCP/M 3.1) offers -- confirmed present on physical MAME
-        // and in the DRI source (kern/memory.mem malloc_entry, modfunc.def
-        // f_malloc=128).  The MPB {start,min,max,pdadr,flags} (5 words) reports
-        // the ACTUAL granted size back in max, so a caller (our farheap.c
-        // __AllocSeg) never over-commits.  Fidelity: emu2 previously lacked this,
-        // masking the Info-ZIP zip far-heap over-commit hang.
+    case 128: // M_ALLOC: allocate memory via MPB {start,min,max,pd,flags}.
     {
         uint32_t mpb = cpuGetAddrDS(dx);
-        uint16_t need = get16(mpb + 2);   // mpb_min
-        uint16_t want = get16(mpb + 4);   // mpb_max
+        uint16_t need = get16(mpb + 2); // mpb_min
+        uint16_t want = get16(mpb + 4); // mpb_max
         uint16_t avail = 0;
         uint16_t got = want;
         uint16_t seg = mem_alloc_segment(want, &avail);
-        if(!seg && avail >= need) // can't get the max; take the largest that fits min
+        if(!seg && avail >= need)
         {
             uint16_t a2 = 0;
             seg = mem_alloc_segment(avail, &a2);
@@ -1663,22 +1550,22 @@ void intr_cpm_bdos(void)
                     need, want, avail, got, seg);
         if(seg && got >= need)
         {
-            put16(mpb + 0, seg);          // mpb_start = granted base segment
-            put16(mpb + 4, got);          // mpb_max   = ACTUAL granted paragraphs
-            bdos_ret(0);                  // BX = 0 -> success
+            put16(mpb + 0, seg);
+            put16(mpb + 4, got); // return actual grant in mpb_max
+            bdos_ret(0);
             cpuSetCX(0);
         }
         else
         {
             if(seg)
-                mem_free_segment(seg);    // could not meet min -> give it back
-            bdos_ret(0xFFFF);             // BX = 0xFFFF -> failure
-            cpuSetCX(3);                  // out of memory
+                mem_free_segment(seg);
+            bdos_ret(0xFFFF);
+            cpuSetCX(3);
         }
         break;
     }
 
-    case 130: // M_FREE: Concurrent CP/M-86 free.  MFPB {start, pd}; free by seg.
+    case 130: // M_FREE: free segment from MFPB {start, pd}.
     {
         uint32_t mfpb = cpuGetAddrDS(dx);
         mem_free_segment(get16(mfpb + 0));
@@ -1687,23 +1574,31 @@ void intr_cpm_bdos(void)
         break;
     }
 
-    case 104: // T_SET: Set Date and Time.  emu2's clock is a deterministic
-        // instruction counter over a wall-clock base, so we accept the call and
-        // succeed (programs must not get an error) but do not retro-set the base.
+    case 104: // T_SET: accept the call but do not retro-set the clock.
         bdos_ret(0);
         break;
 
+    case 155: // T_SECONDS: like T_GET but also stores BCD seconds at DAT+4.
     case 105: // T_GET: Get Date and Time -> fills DAT at DS:DX, AL = seconds (BCD)
-        bdos_ret(cpm_fill_tod(dx, 0));
+    {
+        // DAT structure: word = days since 1978-01-01 (=day 1), byte hour (BCD),
+        // byte minute (BCD); AL returns seconds (BCD).
+        time_t now = time(0);
+        struct tm *lt = localtime(&now);
+        struct tm epoch = {.tm_year = 78, .tm_mon = 0, .tm_mday = 1, .tm_hour = 12};
+        long days = (long)(difftime(now, mktime(&epoch)) / 86400) + 1;
+        uint32_t dat = cpuGetAddrDS(dx);
+        put16(dat, (uint16_t)days);
+        memory[dat + 2] = ((lt->tm_hour / 10) << 4) | (lt->tm_hour % 10);
+        memory[dat + 3] = ((lt->tm_min / 10) << 4) | (lt->tm_min % 10);
+        uint8_t bcd_sec = ((lt->tm_sec / 10) << 4) | (lt->tm_sec % 10);
+        if(func == 155)
+            memory[dat + 4] = bcd_sec; // T_SECONDS: extra seconds word at DAT+4
+        debug(debug_dos, "CP/M get date/time: day %ld %02d:%02d:%02d\n", days,
+              lt->tm_hour, lt->tm_min, lt->tm_sec);
+        bdos_ret(bcd_sec);
         break;
-
-    case 155: // T_SECONDS: like T_GET but ALSO stores BCD seconds at DAT+4.
-        // Concurrent CP/M-86 fn 155 (SUP subfunction 9).  Self-timing programs
-        // (stdcbench's portme.c) read elapsed time from this call's seconds
-        // field; driving it from the deterministic instruction clock gives a
-        // reproducible, work-proportional timer.  AL = seconds (BCD).
-        bdos_ret(cpm_fill_tod(dx, 1));
-        break;
+    }
 
     case 152: // F_PARSE: parse a filename from DS:[PFCB] into an FCB (CP/M 3).
         bdos_ret(cpm_parse_fcb(dx));
@@ -1720,7 +1615,7 @@ void intr_cpm_bdos(void)
         break;
     }
 
-    // Restore preserved registers; P_CHAIN (47) is exempt (it loads a new program).
+    // Restore caller's preserved registers (P_CHAIN loads a new program; skip).
     if(func != 47)
     {
         cpuSetSI(saved_si);
