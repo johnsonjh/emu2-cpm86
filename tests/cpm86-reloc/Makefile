@@ -1,5 +1,11 @@
-# Rebuild FARMULTI.CMD and FARPTR.CMD from C source using Open Watcom.
+# Rebuild CP/M-86 relocation test oracles from C source using Open Watcom.
 # Pre-built binaries are kept in git so Watcom is not required to run the tests.
+#
+# Memory models covered:
+#   medium (-mm -zm): FARMULTI, FARPTR, FARRUN
+#   small  (-ms -zm): SMALL
+#   large  (-ml -zm): LARGE
+#   8080 (single group): SPLIT -- prebuilt only; 8080-model flags unclear, no rebuild target
 #
 # Usage:
 #   make              # rebuild if wcc86 + wlink are in PATH
@@ -14,19 +20,21 @@ ifdef WATCOM_DOCKER
   WLINK = $(_D) wlink
 endif
 
-CFLAGS86 = -mm -zm -s -os -w4
+CF_MED   = -mm -zm -s -os -w4
+CF_SMALL = -ms -zm -s -os -w4
+CF_LARGE = -ml -zm -s -os -w4
 
 .PHONY: all clean
 
-all: FARMULTI.CMD FARPTR.CMD
+all: FARMULTI.CMD FARPTR.CMD FARRUN.CMD SMALL.CMD LARGE.CMD
 
-%.obj: %.c
-	$(CC86) $< $(CFLAGS86)
+FARMULTI.obj: farmulti.c; $(CC86) $< $(CF_MED)
+FARPTR.obj:   farptr.c;   $(CC86) $< $(CF_MED)
+FARRUN.obj:   farrun.c;   $(CC86) $< $(CF_MED)
+SMALL.obj:    small.c;    $(CC86) $< $(CF_SMALL)
+LARGE.obj:    large.c;    $(CC86) $< $(CF_LARGE)
 
-FARMULTI.CMD: farmulti.obj
-	$(WLINK) format cpm86 name $@ option nodefaultlibs, map file $<
-
-FARPTR.CMD: farptr.obj
+%.CMD: %.obj
 	$(WLINK) format cpm86 name $@ option nodefaultlibs, map file $<
 
 clean:

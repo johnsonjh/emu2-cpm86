@@ -641,8 +641,11 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
             fread(memory + (uint32_t)extra_seg * 16, 1, (uint32_t)extra->length * 16, f);
         }
     }
-    if(stack_seg)
+    if(stack_seg && stack)
     {
+        // (Our spec-default scratch stack, when stack==0, already memset its
+        // own segment above at allocation time -- this block only applies to
+        // a CMD-declared STACK group, which has real file image data to load.)
         if(!dirty_groups)
             memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
         if(stack->length)
@@ -783,19 +786,27 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     cpuSetIP(model_8080 ? 0x100 : 0);
     cpuSetDS(cpm_base_seg);
     cpuSetES(cpm_base_seg);
-    cpuSetSS(cpm_base_seg);
-    // Lay the far "exit" address (PSP:0000 = INT 20h) at the very top of the
-    // stack -- at sp_top and sp_top+2 -- and enter with SP = sp_top.  sp_top is
-    // also base-page word 6 (the stack top the program reads), so the address
-    // sits at the program's stack ceiling: a plain "RETF to exit" pops it, and
-    // so does a program that resets SP from base-page 6 and then RETFs (e.g. CL,
-    // LIBR), because its stack grows DOWN from sp_top and never overwrites
-    // sp_top/sp_top+2.  (Pushing the address *below* sp_top, as before, put it
-    // inside such a program's stack, which clobbered it and sent the exit RETF
-    // into garbage -- an infinite runaway.)
-    put16(bp + sp_top + 0, 0);   // exit IP  -> PSP:0000 = INT 20h
-    put16(bp + sp_top + 2, psp); // exit CS  = PSP segment
-    cpuSetSP(sp_top);
+    // SS: NOT cpm_base_seg. stack_seg is now always set (either the CMD's own
+    // declared STACK group, or the spec-default scratch stack allocated
+    // above), so the program starts on a segment genuinely separate from DS,
+    // exactly as measured on real CCP/M-86. A conforming program's own crt0
+    // is responsible for switching to SS=DS with SP from base-page word 6
+    // (the "sp_top" field below, still base_seg-relative -- unchanged) as its
+    // first act; this entry stack only has to survive up to that switch.
+    uint16_t ss_seg  = stack_seg;
+    uint32_t ssbp    = (uint32_t)ss_seg * 16;
+    uint16_t ss_size = (uint16_t)((uint32_t)stack_par * 16);
+    uint16_t entry_sp = (uint16_t)(ss_size - 4); // room for the far exit addr
+    cpuSetSS(ss_seg);
+    // Lay the far "exit" address (PSP:0000 = INT 20h) at the top of this
+    // entry stack and enter with SP there: a plain "RETF to exit" pops it.
+    // (Historical note, still true for programs that reload SS=DS themselves:
+    // sp_top/bp+sp_top below is the DS-relative "top of stack" a program
+    // reads from base-page word 6 once it has done that switch -- it is a
+    // different address space from the entry-time SS used here.)
+    put16(ssbp + entry_sp + 0, 0);   // exit IP  -> PSP:0000 = INT 20h
+    put16(ssbp + entry_sp + 2, psp); // exit CS  = PSP segment
+    cpuSetSP(entry_sp);
     // 8080-model / CP/M-80-heritage programs terminate with a near RET to the
     // warm-boot vector (offset 0), which (unlike a far RETF to PSP:0000) stays in
     // CS and lands at code:0000.  In the 8080 model the code entry is 0x100, so
