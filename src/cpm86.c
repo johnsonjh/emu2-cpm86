@@ -492,21 +492,18 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     // max-min). Each group's BASE-PAGE length is that finally-distributed size
     // (load.sup init_base writes ldt_min after the spread), NOT its raw g_max.
     //
-    // emu2 used to be too generous: with its ~640K arena it always granted the
-    // full g_max, so a program that assumed the loader pre-reserved its Extra
-    // g_max (e.g. Watcom `option farheap` for a far heap) "worked" here but got
-    // only its share on a real, tighter machine -- Info-ZIP zip's deflate window
-    // alloc fails on the RC759 (293K user memory) yet succeeded under old emu2.
-    // Reproduce the real distribution, bounded by a configurable TPA
-    // (CPM86_TPA_KB, default 293 = the RC759/Piccoline CCP/M-86 3.1 figure), so a
-    // program that passes here is real evidence.
+    // emu2 used to be too generous: it always granted the full g_max, so a
+    // program that assumed the loader pre-reserved its Extra g_max (e.g. a
+    // Watcom far heap) "worked" here but would get only its proportional share
+    // on a machine with a smaller TPA.  Reproduce the real distribution,
+    // bounded by the configurable TPA (CPM86_TPA_KB / -m), so programs that
+    // pass here are genuine evidence of correctness.
     uint16_t extra_seg = 0, extra_par = 0, stack_seg = 0, stack_par = 0;
     uint16_t grant_seg = 0;
     {
         if(model_8080 && code_par < 0x1000)
             code_par = 0x1000;
-        // TPA size: "-m" CLI option > CPM86_TPA_KB env var > built-in default
-        // matching real MAME -- see cpm86_get_tpa_kb() for the full rationale.
+        // TPA size: "-m" CLI option > CPM86_TPA_KB env var > built-in default (~640K).
         unsigned tpa_kb = cpm86_get_tpa_kb();
         uint32_t tpa_paras = (uint32_t)tpa_kb * 64;   // 1 KB = 64 paragraphs
         uint32_t fixed = (uint32_t)code_par + (model_8080 ? 0 : data_par);
@@ -550,9 +547,7 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
             // the request and the result previously made `grant` read back 0,
             // underflowing `surplus` below and corrupting the Extra group's
             // declared size (base-page 0x0C) to the full ex_max instead of the
-            // correctly TPA-capped value (found via farheap_smalltest 2026-08-25:
-            // reported "kb=720" static-carve grant from a corrupted ~960K Extra
-            // length, on a pool actually capped to ~210K).
+            // correctly-capped value.
             uint16_t retry_par = gotmax;
             uint16_t discard = 0;
             grant_seg = mem_alloc_segment(retry_par, &discard);
