@@ -1552,9 +1552,8 @@ void intr_cpm_bdos(void)
             seg = mem_alloc_segment(avail, &a2);
             got = avail;
         }
-        if(getenv("CPM86_TRACE_ALLOC"))
-            fprintf(stderr, "BDOS128: need=%u want=%u avail=%u got=%u seg=%u\n",
-                    need, want, avail, got, seg);
+        debug(debug_dos, "CP/M-86 M_ALLOC: need=%u want=%u avail=%u got=%u seg=%u\n",
+              need, want, avail, got, seg);
         if(seg && got >= need)
         {
             put16(mpb + 0, seg);
