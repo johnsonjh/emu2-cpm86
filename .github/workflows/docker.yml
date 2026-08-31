@@ -28,12 +28,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Short SHA
+        run: echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
+
       - uses: docker/build-push-action@v6
         id: build
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          build-args: GIT_SHA=${{ github.sha }}
+          build-args: GIT_SHA=${{ env.SHORT_SHA }}
           outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=true
           provenance: false
 
