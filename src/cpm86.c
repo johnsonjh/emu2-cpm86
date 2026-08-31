@@ -652,10 +652,12 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         }
     }
 
-    // P_LOAD fixup table: hdr[0x7F] bit 7 set, hdr[0x7D..0x7E] = file record
-    // number (x128 = byte offset).  Each 4-byte entry: byte0=(loc<<4|tgt) group
-    // numbers (1=CODE 2=DATA 3=EXTRA 4=STACK 5..8=AUX), bytes1-2=paragraph in
-    // loc group (LE), byte3=byte offset.  Add tgt's load segment to the word.
+    // Reimplementation of CCP/M-86 P_LOAD load-time relocation, derived from
+    // the CCP/M-86 source and validated with Digital Research C v1.1 / LINK86 v1.2.
+    // Fixup table: hdr[0x7F] bit 7 set, hdr[0x7D..0x7E] = file record number
+    // (x128 = byte offset).  Each 4-byte entry: byte0=(loc<<4|tgt) group numbers
+    // (1=CODE 2=DATA 3=EXTRA 4=STACK 5..8=AUX), bytes1-2=paragraph in loc group
+    // (LE), byte3=byte offset.  Add tgt's load segment to the word at that location.
     // Ends at first all-zero entry.
     if(hdr[0x7F] & 0x80)
     {
