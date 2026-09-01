@@ -36,7 +36,7 @@ obj:
 # Run the CP/M-86 loader relocation regression against the freshly built emu2.
 .PHONY: check test
 check test: emu2
-	EMU2=./emu2 sh tests/cpm86-reloc/run.sh
+	env EMU2=./emu2 sh tests/cpm86-reloc/run.sh
 
 .PHONY: clean distclean
 clean distclean:
