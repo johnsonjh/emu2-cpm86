@@ -101,7 +101,9 @@ check_header FARMULTI.CMD  01  02  1  1
 check_header FARPTR.CMD    01  02  1  1
 # FARRUN:   CODE group + DATA group (1-byte anchor), relocation table present
 check_header FARRUN.CMD    01  02  1  1
-# SPLIT:    CODE group only (8080 model, single group, data==0), relocation table present
+# SPLIT: CODE-only (medium-model, no DATA group, data==0), relocation table present.
+# The loader takes the data==0 path (model_8080), which still exercises that code path.
+# Note: SPLIT has no bdos(0,0) call; exit code is implementation-defined (not checked).
 check_header SPLIT.CMD     01  00  0  1
 
 check FARMULTI.CMD OK!
