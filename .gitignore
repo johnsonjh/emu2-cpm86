@@ -1,4 +1,9 @@
+a.out
+*.core
+core
+core-*
 emu2
 obj/
 .test.c
+.test.exe
 .test.out
