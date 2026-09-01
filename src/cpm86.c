@@ -59,6 +59,32 @@ struct cpm_group
 // Set once a CP/M-86 program is loaded (see cpm86.h).
 int cpm86_active = 0;
 
+// TPA size override from "-m <kb>"; 0 = not set (see cpm86_get_tpa_kb).
+unsigned cpm86_tpa_kb_cli = 0;
+
+// Poison byte from "-P <byte>"; -1 = not set (fall back to CPM86_POISON env var).
+int cpm86_poison_cli = -1;
+
+// "-D" flag: fill free memory with 0xFF before loading; 0 = not set.
+int cpm86_dirty_cli = 0;
+
+// TPA size in KB: "-m" > CPM86_TPA_KB env var > ~640K default.
+// Used by both the CMD loader and dos.c MCB init so they agree on one ceiling.
+unsigned cpm86_get_tpa_kb(void)
+{
+    static const unsigned default_tpa_kb = 640;
+    if(cpm86_tpa_kb_cli)
+        return cpm86_tpa_kb_cli;
+    const char *e = getenv("CPM86_TPA_KB");
+    if(e && *e)
+    {
+        unsigned v = (unsigned)strtoul(e, 0, 0);
+        if(v)
+            return v;
+    }
+    return default_tpa_kb;
+}
+
 // Parsed program image (segments are emu2 paragraph addresses).
 static uint16_t cpm_code_seg, cpm_data_seg, cpm_base_seg;
 // Extra/stack segments of the currently-loaded program (0 = none), so BDOS 47
@@ -429,7 +455,36 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(!code)
         return 0;
 
+    // -P <byte> / -D / CPM86_POISON=<byte> / CPM86_DIRTY_GROUPS:
+    // fill free memory before loading to surface uninitialized-read bugs.
+    // CLI flags take precedence over env vars.
+    int dirty_groups = 0;
+    if(cpm86_poison_cli >= 0)
+    {
+        dirty_groups = 1;
+        mem_poison_free((uint8_t)cpm86_poison_cli);
+    }
+    else if(cpm86_dirty_cli)
+    {
+        dirty_groups = 1;
+        mem_poison_free(0xFF);
+    }
+    else
+    {
+        const char *dg = getenv("CPM86_DIRTY_GROUPS");
+        const char *pe = getenv("CPM86_POISON");
+        if(dg && *dg && *dg != '0')
+            dirty_groups = 1;
+        if(pe && *pe)
+            mem_poison_free((uint8_t)strtoul(pe, 0, 0));
+        else if(dirty_groups)
+            mem_poison_free(0xFF);
+    }
+
     // --- Allocate memory for the groups (paragraphs) ------------------------
+    // FIXME: (data == 0) is too broad -- a small/medium CMD with an empty
+    // DATA group is misclassified as 8080 (wrong entry IP 0x100, base-page
+    // assumptions).  Should key off the header group layout instead.
     int model_8080 = (data == 0);
     uint16_t code_par = code->max ? code->max : code->length;
     if(code_par < code->length)
@@ -442,72 +497,111 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(data && data->max && data->max >= data->length && data->max < 0x1000)
         data_par = data->max;
 
-    uint16_t gotmax = 0;
-    if(model_8080)
-    {
-        if(code_par < 0x1000)
-            code_par = 0x1000;
-        cpm_code_seg = cpm_data_seg = cpm_base_seg = mem_alloc_segment(code_par, &gotmax);
-        if(!cpm_code_seg)
-            return 0;
-    }
-    else
-    {
-        cpm_code_seg = mem_alloc_segment(code_par, &gotmax);
-        cpm_data_seg = cpm_base_seg = mem_alloc_segment(data_par, &gotmax);
-        if(!cpm_code_seg || !cpm_data_seg)
-            return 0;
-    }
-
-    // Extra (ES) and stack (SS) groups: allocate as much as the program asks
-    // for (up to g_max), falling back to the largest available block, but at
-    // least g_min.  Programs such as ARC86 keep large working buffers (its LZW
-    // table) in the extra group and read its base/length from the base page.
+    // Reimplementation of the CCP/M-86 3.1 load.sup group-allocation algorithm:
+    // sum min/max across all groups, allocate once, then spread proportionally
+    // (min to each group first; surplus by max-min, extra before stack).
     uint16_t extra_seg = 0, extra_par = 0, stack_seg = 0, stack_par = 0;
-    if(extra && extra->min)
+    uint16_t grant_seg = 0;
     {
-        uint16_t want = extra->max > extra->min ? extra->max : extra->min;
-        uint16_t avail = 0;
-        extra_seg = mem_alloc_segment(want, &avail);
-        if(!extra_seg && avail >= extra->min)
+        if(model_8080 && code_par < 0x1000)
+            code_par = 0x1000;
+        unsigned tpa_kb = cpm86_get_tpa_kb();
+        uint32_t tpa_paras = (uint32_t)tpa_kb * 64;   // 1 KB = 64 paragraphs
+        uint32_t fixed = (uint32_t)code_par + (model_8080 ? 0 : data_par);
+        uint16_t ex_min = extra ? extra->min : 0;
+        uint16_t ex_max = (extra && extra->max > extra->min) ? extra->max : ex_min;
+        uint16_t st_min = stack ? stack->min : 0;
+        uint16_t st_max = (stack && stack->max > stack->min) ? stack->max : st_min;
+        uint32_t total_min = fixed + ex_min + st_min;
+        uint32_t total_max = fixed + ex_max + st_max;
+        if(total_min > tpa_paras || total_min > 0xFFFF)
         {
-            uint16_t a2;
-            want = avail;
-            extra_seg = mem_alloc_segment(want, &a2);
+            debug(debug_dos, "CP/M-86 load: program min %u paras exceeds TPA %u "
+                             "-> insufficient memory\n", (unsigned)total_min,
+                  (unsigned)tpa_paras);
+            return 0;
         }
-        if(extra_seg)
-            extra_par = want;
-    }
-    if(stack && stack->min)
-    {
-        uint16_t want = stack->max > stack->min ? stack->max : stack->min;
-        uint16_t avail = 0;
-        stack_seg = mem_alloc_segment(want, &avail);
-        if(!stack_seg && avail >= stack->min)
+        uint32_t want = total_max < tpa_paras ? total_max : tpa_paras;
+        uint16_t gotmax = 0;
+        grant_seg = mem_alloc_segment((uint16_t)want, &gotmax);
+        uint32_t grant = 0;
+        if(grant_seg)
+            grant = want;
+        else if(gotmax >= total_min)
         {
-            uint16_t a2;
-            want = avail;
-            stack_seg = mem_alloc_segment(want, &a2);
+            // Capture gotmax before the retry call: mem_alloc_segment resets
+            // *max on an exact-fit success, so reading it back would give 0.
+            uint16_t retry_par = gotmax;
+            uint16_t discard = 0;
+            grant_seg = mem_alloc_segment(retry_par, &discard);
+            grant = retry_par;
         }
-        if(stack_seg)
-            stack_par = want;
+        if(!grant_seg)
+        {
+            debug(debug_dos, "CP/M-86 load: could not allocate %u paras (min %u) "
+                             "-> insufficient memory\n", (unsigned)want,
+                  (unsigned)total_min);
+            return 0;
+        }
+        uint32_t surplus = grant - total_min;
+        // Spread surplus: even share per group wanting more, capped at max-min.
+        uint16_t ex_par = ex_min, st_par = st_min;
+        int nrels = (ex_max > ex_min) + (st_max > st_min);
+        if(nrels && surplus)
+        {
+            // extra first, then stack (matches descriptor order)
+            if(ex_max > ex_min)
+            {
+                uint32_t share = (surplus + nrels - 1) / nrels; // round up
+                uint32_t room = (uint32_t)(ex_max - ex_min);
+                if(share > room)
+                    share = room;
+                ex_par = ex_min + (uint16_t)share;
+                surplus -= share;
+                nrels--;
+            }
+            if(st_max > st_min && nrels && surplus)
+            {
+                uint32_t share = surplus; // last taker gets the remainder
+                uint32_t room = (uint32_t)(st_max - st_min);
+                if(share > room)
+                    share = room;
+                st_par = st_min + (uint16_t)share;
+            }
+        }
+        extra_par = (extra && ex_par) ? ex_par : 0;
+        stack_par = (stack && st_par) ? st_par : 0;
+
     }
 
-    // Real CCP/M-86 (Regnecentralen RC759, Piccoline XIOS 3.1, measured on
-    // physical-accurate MAME) does NOT hand a freestanding transient SS==DS.
-    // It gives it a small (96-byte / 6-paragraph) scratch stack in a segment
-    // BELOW the base/data segment (spec-mandated small default stack, DR
-    // CP/M-86 System Guide §4.1.2 -- programs are required to switch to their
-    // own SS=DS stack early in startup). emu2 used to just set SS=DS
-    // unconditionally, which is a *more lenient* environment than real
-    // hardware: a crt0 that forgets the SS=DS switch runs "by accident" under
-    // the old emu2 (SS==DS trivially) but corrupts memory on real CCP/M-86
-    // (a near pointer to an SS-relative stack local resolves against the
-    // wrong segment). Reproduce the same non-equal-segment hazard here so a
-    // program that passes under emu2 is real evidence, not a coincidence of
-    // a too-forgiving loader. Only applies when the CMD did not request its
-    // own explicit STACK group (type 4) -- that case already gets a real,
-    // separately-allocated segment above.
+    // Place groups contiguously within the grant.
+    {
+        uint16_t cur = grant_seg;
+        cpm_code_seg = cur;
+        cur = (uint16_t)(cur + code_par);
+        if(model_8080)
+        {
+            cpm_data_seg = cpm_base_seg = cpm_code_seg;
+        }
+        else
+        {
+            cpm_data_seg = cpm_base_seg = cur;
+            cur = (uint16_t)(cur + data_par);
+        }
+        if(extra_par)
+        {
+            extra_seg = cur;
+            cur = (uint16_t)(cur + extra_par);
+        }
+        if(stack_par)
+        {
+            stack_seg = cur;
+            cur = (uint16_t)(cur + stack_par);
+        }
+    }
+
+    // Programs without an explicit STACK group get a small scratch stack in a
+    // separate segment below the data segment (CP/M-86 System Guide sec. 4.1.2).
     if(!stack_seg)
     {
         uint16_t avail = 0;
@@ -516,10 +610,9 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         {
             stack_seg = scratch;
             stack_par = 6;
-            memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
+            if(!dirty_groups)
+                memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
         }
-        // If allocation fails (memory exhausted), fall through to the old
-        // SS=DS behavior below rather than failing the load.
     }
 
     // Auxiliary groups (CMD types 5..8) map to base-page descriptor slots 4..7
@@ -562,7 +655,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     }
     if(extra_seg)
     {
-        memset(memory + (uint32_t)extra_seg * 16, 0, (uint32_t)extra_par * 16);
+        if(!dirty_groups)
+            memset(memory + (uint32_t)extra_seg * 16, 0, (uint32_t)extra_par * 16);
         if(extra->length)
         {
             fseek(f, extra->file_off, SEEK_SET);
@@ -574,12 +668,69 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         // (Our spec-default scratch stack, when stack==0, already memset its
         // own segment above at allocation time -- this block only applies to
         // a CMD-declared STACK group, which has real file image data to load.)
-        memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
+        if(!dirty_groups)
+            memset(memory + (uint32_t)stack_seg * 16, 0, (uint32_t)stack_par * 16);
         if(stack->length)
         {
             fseek(f, stack->file_off, SEEK_SET);
             fread(memory + (uint32_t)stack_seg * 16, 1, (uint32_t)stack->length * 16, f);
         }
+    }
+
+    // hdr[0x7F] flags (see https://www.seasip.info/Cpm/cmdfile.html):
+    //   bit 7: fixup table present (implemented below)
+    //   bit 6: allocate 8087 even if not present  } not implemented;
+    //   bit 5: allocate 8087 only if present       } ignored silently
+    //   bit 4: file is an RSX, not a CMD           }
+    //
+    // Reimplementation of CCP/M-86 P_LOAD load-time relocation, derived from
+    // the CCP/M-86 source and validated with Digital Research C v1.1 / LINK86 v1.2.
+    // Fixup table: hdr[0x7D..0x7E] = file record number (x128 = byte offset).
+    // Each 4-byte entry: byte0=(loc<<4|tgt) group numbers (1=CODE 2=DATA 3=EXTRA
+    // 4=STACK 5..8=AUX), bytes1-2=paragraph in loc group (LE), byte3=byte offset.
+    // Add tgt's load segment to the word at that location.  Ends at first all-zero entry.
+    if(hdr[0x7F] & 0x80)
+    {
+        uint16_t grp_seg[9] = {0};
+        grp_seg[GT_CODE]  = cpm_code_seg;
+        grp_seg[GT_DATA]  = data ? cpm_data_seg : 0;
+        grp_seg[GT_EXTRA] = extra_seg;
+        grp_seg[GT_STACK] = stack_seg;
+        grp_seg[5] = aux_seg[0];
+        grp_seg[6] = aux_seg[1];
+        grp_seg[7] = aux_seg[2];
+        grp_seg[8] = aux_seg[3];
+
+        uint32_t fixrec = (uint32_t)hdr[0x7D] | ((uint32_t)hdr[0x7E] << 8);
+        uint32_t pos = fixrec * 128;
+        unsigned applied = 0;
+        for(;;)
+        {
+            uint8_t rec[4];
+            if(fseek(f, pos, SEEK_SET) != 0 || fread(rec, 1, 4, f) != 4)
+                break;
+            if(rec[0] == 0 && rec[1] == 0 && rec[2] == 0 && rec[3] == 0)
+                break; // table ends at the first all-zero record
+            unsigned loc_grp = (rec[0] >> 4) & 0x0F;
+            unsigned tgt_grp = rec[0] & 0x0F;
+            uint16_t para = (uint16_t)(rec[1] | (rec[2] << 8));
+            uint8_t offs = rec[3] & 0x0F;
+            if(loc_grp > 8 || tgt_grp > 8 || grp_seg[loc_grp] == 0 ||
+               (grp_seg[tgt_grp] == 0 && tgt_grp != 0))
+            {
+                debug(debug_dos,
+                      "CP/M-86 load: fixup #%u names undefined group "
+                      "(byte 0x%02x) -- skipped\n",
+                      applied, rec[0]);
+                pos += 4;
+                continue;
+            }
+            uint32_t addr = ((uint32_t)(grp_seg[loc_grp] + para) << 4) + offs;
+            put16(addr, (get16(addr) + grp_seg[tgt_grp]) & 0xFFFF);
+            applied++;
+            pos += 4;
+        }
+        debug(debug_dos, "CP/M-86 load: applied %u load-time fixup(s)\n", applied);
     }
 
     // --- Base page (256 bytes at DS:0) --------------------------------------
@@ -1110,6 +1261,16 @@ void intr_cpm_bdos(void)
     unsigned func = cpuGetCX() & 0xFF;
     unsigned dx = cpuGetDX();
 
+    // BDOS preserves SI/DI/BP/DS/SS (CP/M-86 System Guide S4.1); not ES.
+    unsigned saved_si = cpuGetSI(), saved_di = cpuGetDI(), saved_bp = cpuGetBP();
+    unsigned saved_ds = cpuGetDS(), saved_ss = cpuGetSS();
+    // Console-output functions (2, 9, 6-out) have no return value; save all
+    // regs so bdos_ret() doesn't clobber the caller's AX/BX/CX/DX.
+    unsigned saved_ax = cpuGetAX(), saved_bx = cpuGetBX();
+    unsigned saved_cx = cpuGetCX(), saved_dx = cpuGetDX();
+    int no_return = (func == 2) || (func == 9) ||
+                    (func == 6 && (dx & 0xFF) < 0xFD);
+
     switch(func)
     {
     case 0:   // System Reset / program termination
@@ -1410,12 +1571,54 @@ void intr_cpm_bdos(void)
         cpuSetCX(3);
         break;
 
-    case 104: // T_SET: accept call, return success (clock is read-only).
+    case 128: // M_ALLOC: allocate memory via MPB {start,min,max,pd,flags}.
+    {
+        uint32_t mpb = cpuGetAddrDS(dx);
+        uint16_t need = get16(mpb + 2); // mpb_min
+        uint16_t want = get16(mpb + 4); // mpb_max
+        uint16_t avail = 0;
+        uint16_t got = want;
+        uint16_t seg = mem_alloc_segment(want, &avail);
+        if(!seg && avail >= need)
+        {
+            uint16_t a2 = 0;
+            seg = mem_alloc_segment(avail, &a2);
+            got = avail;
+        }
+        debug(debug_dos, "CP/M-86 M_ALLOC: need=%u want=%u avail=%u got=%u seg=%u\n",
+              need, want, avail, got, seg);
+        if(seg && got >= need)
+        {
+            put16(mpb + 0, seg);
+            put16(mpb + 4, got); // return actual grant in mpb_max
+            bdos_ret(0);
+            cpuSetCX(0);
+        }
+        else
+        {
+            if(seg)
+                mem_free_segment(seg);
+            bdos_ret(0xFFFF);
+            cpuSetCX(3);
+        }
+        break;
+    }
+
+    case 130: // M_FREE: free segment from MFPB {start, pd}.
+    {
+        uint32_t mfpb = cpuGetAddrDS(dx);
+        mem_free_segment(get16(mfpb + 0));
+        bdos_ret(0);
+        cpuSetCX(0);
+        break;
+    }
+
+    case 104: // T_SET: accept the call but do not retro-set the clock.
         bdos_ret(0);
         break;
 
-    case 155: // T_SECONDS: like T_GET but also writes BCD seconds to DAT+4.
-    case 105: // T_GET: fills DAT at DS:DX; days since 1978-01-01, BCD h/m; AL=BCD sec.
+    case 155: // T_SECONDS: like T_GET but also stores BCD seconds at DAT+4.
+    case 105: // T_GET: Get Date and Time -> fills DAT at DS:DX, AL = seconds (BCD)
     {
         time_t now = time(0);
         struct tm *lt = localtime(&now);
@@ -1427,7 +1630,7 @@ void intr_cpm_bdos(void)
         memory[dat + 2] = ((lt->tm_hour / 10) << 4) | (lt->tm_hour % 10);
         memory[dat + 3] = ((lt->tm_min / 10) << 4) | (lt->tm_min % 10);
         if(func == 155)
-            memory[dat + 4] = bcd_sec;
+            memory[dat + 4] = bcd_sec; // T_SECONDS: extra seconds word at DAT+4
         debug(debug_dos, "CP/M get date/time: day %ld %02d:%02d:%02d\n", days,
               lt->tm_hour, lt->tm_min, lt->tm_sec);
         bdos_ret(bcd_sec);
@@ -1447,6 +1650,23 @@ void intr_cpm_bdos(void)
         debug(debug_dos, "CP/M BDOS %u: UNIMPLEMENTED (DX=%04x)\n", func, dx);
         bdos_ret(0xFF); // 0xFF = error / not found for most file funcs
         break;
+    }
+
+    // Restore caller's preserved registers (P_CHAIN loads a new program; skip).
+    if(func != 47)
+    {
+        cpuSetSI(saved_si);
+        cpuSetDI(saved_di);
+        cpuSetBP(saved_bp);
+        cpuSetDS(saved_ds);
+        cpuSetSS(saved_ss);
+        if(no_return)
+        {
+            cpuSetAX(saved_ax);
+            cpuSetBX(saved_bx);
+            cpuSetCX(saved_cx);
+            cpuSetDX(saved_dx);
+        }
     }
 }
 

@@ -553,6 +553,24 @@ void mcb_init(uint16_t mem_start, uint16_t mem_end)
     mcb_new(mem_start, 0, mem_end - mem_start - 1, 1);
 }
 
+void mem_poison_free(uint8_t val)
+{
+    uint16_t mcb = mcb_start;
+    while(1)
+    {
+        if(mcb_is_free(mcb))
+        {
+            uint32_t base = (uint32_t)(mcb + 1) * 16;
+            uint32_t len  = (uint32_t)mcb_size(mcb) * 16;
+            if(base < 0x110000 && base + len <= 0x110000)
+                memset(memory + base, val, len);
+        }
+        if(mcb_is_last(mcb))
+            break;
+        mcb = mcb_next(mcb);
+    }
+}
+
 uint8_t mem_get_alloc_strategy(void)
 {
     return mcb_alloc_st;
