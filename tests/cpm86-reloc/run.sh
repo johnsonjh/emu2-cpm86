@@ -11,8 +11,11 @@
 # that reference to the group's real load segment; without P_LOAD they read
 # paragraph 0 and print garbage / fault. So a plain string match on "OK!" is a
 # genuine pass/fail for the feature.
-#   FARMULTI.CMD  far CALL across coalesced *_TEXT code groups (medium -mm -zm)
-#   FARPTR.CMD    far DATA POINTER into a type-3 EXTRA group (compact far data)
+# Oracles are named for the CP/M-86 memory model they exercise:
+#   MEDIUM.CMD   far CALL across coalesced *_TEXT code groups (medium -mm -zm)
+#   MEDIUM2.CMD  minimal single far-call smoke (medium -mm -zm)
+#   COMPACT.CMD  far DATA POINTER into a type-3 EXTRA group (compact far data)
+#   TINY.CMD     8080 single-group (data==0) load-smoke
 # Provenance: built in-workspace (scratch/stageb) from the wlink CP/M-86 writer;
 # vendored here (≤768 B each) so this test is self-contained.
 #
@@ -95,21 +98,21 @@ check_load() {                  # check_load <cmd-file> -- load-smoke (no output
     fi
 }
 
-# FARMULTI: CODE group + DATA group (1-byte anchor), relocation table present
-check_header FARMULTI.CMD  01  02  1  1
-# FARPTR:   CODE group + DATA group (far-pointer table), relocation table present
-check_header FARPTR.CMD    01  02  1  1
-# FARRUN:   CODE group + DATA group (1-byte anchor), relocation table present
-check_header FARRUN.CMD    01  02  1  1
-# SPLIT: CODE-only (medium-model, no DATA group, data==0), relocation table present.
+# MEDIUM:  CODE group + DATA group (1-byte anchor), relocation table present
+check_header MEDIUM.CMD   01  02  1  1
+# COMPACT: CODE group + DATA group (far-pointer table), relocation table present
+check_header COMPACT.CMD  01  02  1  1
+# MEDIUM2: CODE group + DATA group (1-byte anchor), relocation table present
+check_header MEDIUM2.CMD  01  02  1  1
+# TINY: CODE-only (medium-model, no DATA group, data==0), relocation table present.
 # The loader takes the data==0 path (model_8080), which still exercises that code path.
-# Note: SPLIT has no bdos(0,0) call; exit code is implementation-defined (not checked).
-check_header SPLIT.CMD     01  00  0  1
+# Note: TINY has no bdos(0,0) call; exit code is implementation-defined (not checked).
+check_header TINY.CMD     01  00  0  1
 
-check FARMULTI.CMD OK!
-check FARPTR.CMD   OK!
-check FARRUN.CMD   A
-check_load SPLIT.CMD
+check MEDIUM.CMD  OK!
+check COMPACT.CMD OK!
+check MEDIUM2.CMD A
+check_load TINY.CMD
 
 if [ "$fail" = 0 ]; then
     echo "P_LOAD relocation regression: ALL PASS"
