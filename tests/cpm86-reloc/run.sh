@@ -55,7 +55,7 @@ check_header() {
 
     # group[1].length at bytes 10-11 (LE): non-zero iff the DATA group has content
     g1lo=$(byte_at 10 "$f"); g1hi=$(byte_at 11 "$f")
-    has_data=$(( g1lo != 0 || g1hi != 0 ))
+    has_data=$(( 0x$g1lo != 0 || 0x$g1hi != 0 ))
     if [ "$has_data" != "$data_want" ]; then
         echo "FAIL  $1  group[1] data: has_data=$has_data, want $data_want"
         ok=0
@@ -104,6 +104,9 @@ check_header MEDIUM.CMD   01  02  1  1
 check_header COMPACT.CMD  01  02  1  1
 # MEDIUM2: CODE group + DATA group (1-byte anchor), relocation table present
 check_header MEDIUM2.CMD  01  02  1  1
+# SMALL: CODE + DATA groups, near/near -- NO P_LOAD fixups (reloc bit 0). Exercises
+# the loader's non-relocating two-group path.
+check_header SMALL.CMD    01  02  1  0
 # TINY: CODE-only (medium-model, no DATA group, data==0), relocation table present.
 # The loader takes the data==0 path (model_8080), which still exercises that code path.
 # Note: TINY has no bdos(0,0) call; exit code is implementation-defined (not checked).
@@ -112,6 +115,7 @@ check_header TINY.CMD     01  00  0  1
 check MEDIUM.CMD  OK!
 check COMPACT.CMD OK!
 check MEDIUM2.CMD A
+check SMALL.CMD   OK!
 check_load TINY.CMD
 
 if [ "$fail" = 0 ]; then
