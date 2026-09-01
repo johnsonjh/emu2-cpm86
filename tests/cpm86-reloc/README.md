@@ -5,28 +5,31 @@ group allocation, P_LOAD fixup application, and entry-stack setup.  Pre-built
 `.CMD` binaries are kept in git; C sources document what was built and allow
 reproduction with Open Watcom.
 
+Oracles are named for the **CP/M-86 memory model** they exercise, so the file
+name tells you which load-time layout is under test.
+
 ## Oracle inventory
 
 | File | Memory model | Prints | emu2-runnable | Source |
 |------|-------------|--------|---------------|--------|
-| `FARMULTI.CMD` | medium (far calls, 4 funcs × separate `_TEXT`) | `OK!` | yes | `farmulti.c` |
-| `FARPTR.CMD`   | compact-like (far DATA pointer → CODE stubs)   | `OK!` | yes | `farptr.c` |
-| `FARRUN.CMD`   | medium (far call, single smoke function)        | `A`   | yes | `farrun.c` |
-| `SPLIT.CMD`    | 8080 single-group (data==0, entry 0x100)        | —     | yes (load-smoke) | `split.c` |
-| `SMALL.CMD`    | small (near CODE+DATA, no P_LOAD fixups)        | `OK!` | yes | `small.c` |
-| `LARGE.CMD`    | large (far code+data, far-pointer relocation)   | `OK!` | yes | `large.c` |
+| `TINY.CMD`    | 8080 single-group (data==0, entry 0x100)         | —     | yes (load-smoke) | `tiny.c` |
+| `SMALL.CMD`   | small (near CODE+DATA, no P_LOAD fixups)          | `OK!` | yes | `small.c` |
+| `COMPACT.CMD` | compact (`__far` DATA pointer → CODE stubs)       | `OK!` | yes | `compact.c` |
+| `MEDIUM.CMD`  | medium (far calls, 4 funcs × separate `_TEXT`)    | `OK!` | yes | `medium.c` |
+| `MEDIUM2.CMD` | medium (minimal single far-call smoke)            | `A`   | yes | `medium2.c` |
+| `LARGE.CMD`   | large (far code+data, far-pointer relocation)     | `OK!` | yes | `large.c` |
 
-### Not run under emu2
+`COMPACT.CMD` is built with `-mm -zm` but its data table uses explicit `__far`
+pointers, so it exercises the far-data-pointer (compact-model) relocation path
+regardless of the model flag.
 
-| File | Reason | Source |
-|------|--------|--------|
-| `DRCFPTR.CMD` | Built by DR C 1.11 (LARGE, ~38 KB); requires DR C toolchain + MAME for verification | `drc_farptr.c` |
-| `FPTRMAME.CMD` | MAME-instrumented (signals pass/fail via port 0x2FE); not useful outside a MAME session | `farptr_mame.c` |
+`SMALL.CMD` and `LARGE.CMD` have C sources but no prebuilt binary yet (Open
+Watcom is not available in CI); build them from source to run.
 
 ## Building oracles
 
-Pre-built binaries cover all models tested by `run.sh`.  Rebuild from source
-if you change the C files or want to verify bit-identity:
+Pre-built binaries cover the models tested by `run.sh`.  Rebuild from source if
+you change the C files or want to verify bit-identity:
 
 ```sh
 # native Open Watcom in PATH:
@@ -36,13 +39,9 @@ make
 make WATCOM_DOCKER=1
 ```
 
-`SPLIT.CMD` has no Makefile target: the 8080-model wlink flags that produce a
-genuine single-group layout (data descriptor == 0) are unclear; it is kept as
-a prebuilt load-smoke only.
-
-`DRCFPTR.CMD` and `FPTRMAME.CMD` are also prebuilts (not in the Makefile):
-`DRCFPTR` requires the DR C 1.11 + LINK86 1.2 toolchain; `FPTRMAME` embeds
-MAME-specific port signalling and is not useful outside a MAME-hosted session.
+`TINY.CMD` has no Makefile target: the 8080-model wlink flags that produce a
+genuine single-group layout (data descriptor == 0) are unclear; it is kept as a
+prebuilt load-smoke only.
 
 ## Running
 
