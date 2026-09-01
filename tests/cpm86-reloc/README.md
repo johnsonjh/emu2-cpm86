@@ -17,14 +17,24 @@ name tells you which load-time layout is under test.
 | `COMPACT.CMD` | compact (`__far` DATA pointer → CODE stubs)       | `OK!` | yes | `compact.c` |
 | `MEDIUM.CMD`  | medium (far calls, 4 funcs × separate `_TEXT`)    | `OK!` | yes | `medium.c` |
 | `MEDIUM2.CMD` | medium (minimal single far-call smoke)            | `A`   | yes | `medium2.c` |
-| `LARGE.CMD`   | large (far code+data, far-pointer relocation)     | `OK!` | yes | `large.c` |
+| `large.c`     | large (far code+data, far-pointer relocation)     | `OK!` | **untested** | `large.c` |
 
 `COMPACT.CMD` is built with `-mm -zm` but its data table uses explicit `__far`
 pointers, so it exercises the far-data-pointer (compact-model) relocation path
 regardless of the model flag.
 
-`SMALL.CMD` and `LARGE.CMD` have C sources but no prebuilt binary yet (Open
-Watcom is not available in CI); build them from source to run.
+`SMALL.CMD` uses a `main` entry and is linked against the real CP/M-86 C runtime
+(`cstartcpm.obj` + `clibs.lib`): small-model codegen references the startup
+symbol `_small_code_`, so it cannot use the bare `cpmmain` + `option
+nodefaultlibs` style of the medium/compact oracles.  It has no P_LOAD fixups
+(reloc bit 0), so it verifies the loader's non-relocating two-group path.
+
+**`large.c` has no prebuilt `LARGE.CMD` and is not run** — Open Watcom ships no
+large-model CP/M-86 runtime (`clibl.lib`, `_cstart_`, `_big_code_` are all
+missing from the `cpm86` target), so a hosted large-model program cannot be
+linked, and small-model-style clib-free linking fails on `_big_code_` too.  The
+source is kept as documentation of the intended large-model far-pointer oracle.
+Tracked in ravn/emu2-cpm86#16.
 
 ## Building oracles
 
