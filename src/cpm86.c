@@ -482,14 +482,17 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     }
 
     // --- Allocate memory for the groups (paragraphs) ------------------------
+    // FIXME(#17): (data == 0) is too broad -- a small/medium CMD with an empty
+    // DATA group is misclassified as 8080 (wrong entry IP 0x100, base-page
+    // assumptions).  Should key off the header group layout instead.
     int model_8080 = (data == 0);
     uint16_t code_par = code->max ? code->max : code->length;
     if(code_par < code->length)
         code_par = code->length;
 
     // CP/M-86 gives the program a full 64K data/stack group; the runtime sets
-    // SP from base-page word 6 (= top of that group).  TODO: 8080 model packs
-    // code+data into one group; handle that base-page layout separately.
+    // SP from base-page word 6 (= top of that group).  TODO(#12): 8080 model
+    // packs code+data into one group; handle that base-page layout separately.
     uint16_t data_par = 0x1000; // 64K
     if(data && data->max && data->max >= data->length && data->max < 0x1000)
         data_par = data->max;
@@ -677,7 +680,7 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     // hdr[0x7F] flags (see https://www.seasip.info/Cpm/cmdfile.html):
     //   bit 7: fixup table present (implemented below)
     //   bit 6: allocate 8087 even if not present  } not implemented;
-    //   bit 5: allocate 8087 only if present       } ignored silently
+    //   bit 5: allocate 8087 only if present       } ignored silently (#18)
     //   bit 4: file is an RSX, not a CMD           }
     //
     // Reimplementation of CCP/M-86 P_LOAD load-time relocation, derived from
