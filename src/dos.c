@@ -561,6 +561,9 @@ static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
     if(write)
         handle_written[get_fcb_handle()] = 1;
     unsigned n = write ? fwrite(buf, 1, rsize, f) : fread(buf, 1, rsize, f);
+    // CP/M-86 random writes are write-through; flush so another FCB or stat() sees the new data.
+    if(write && n)
+        fflush(f);
     // Update random and block positions
     if(update)
     {

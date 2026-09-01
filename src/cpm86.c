@@ -62,6 +62,12 @@ int cpm86_active = 0;
 // TPA size override from "-m <kb>"; 0 = not set (see cpm86_get_tpa_kb).
 unsigned cpm86_tpa_kb_cli = 0;
 
+// Poison byte from "-P <byte>"; -1 = not set (fall back to CPM86_POISON env var).
+int cpm86_poison_cli = -1;
+
+// "-D" flag: fill free memory with 0xFF before loading; 0 = not set.
+int cpm86_dirty_cli = 0;
+
 // TPA size in KB: "-m" > CPM86_TPA_KB env var > ~640K default.
 // Used by both the CMD loader and dos.c MCB init so they agree on one ceiling.
 unsigned cpm86_get_tpa_kb(void)
@@ -449,8 +455,21 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(!code)
         return 0;
 
-    // CPM86_POISON=<byte> / CPM86_DIRTY_GROUPS: fill free memory before loading.
+    // -P <byte> / -D / CPM86_POISON=<byte> / CPM86_DIRTY_GROUPS:
+    // fill free memory before loading to surface uninitialized-read bugs.
+    // CLI flags take precedence over env vars.
     int dirty_groups = 0;
+    if(cpm86_poison_cli >= 0)
+    {
+        dirty_groups = 1;
+        mem_poison_free((uint8_t)cpm86_poison_cli);
+    }
+    else if(cpm86_dirty_cli)
+    {
+        dirty_groups = 1;
+        mem_poison_free(0xFF);
+    }
+    else
     {
         const char *dg = getenv("CPM86_DIRTY_GROUPS");
         const char *pe = getenv("CPM86_POISON");
@@ -1598,17 +1617,15 @@ void intr_cpm_bdos(void)
     case 155: // T_SECONDS: like T_GET but also stores BCD seconds at DAT+4.
     case 105: // T_GET: Get Date and Time -> fills DAT at DS:DX, AL = seconds (BCD)
     {
-        // DAT structure: word = days since 1978-01-01 (=day 1), byte hour (BCD),
-        // byte minute (BCD); AL returns seconds (BCD).
         time_t now = time(0);
         struct tm *lt = localtime(&now);
         struct tm epoch = {.tm_year = 78, .tm_mon = 0, .tm_mday = 1, .tm_hour = 12};
         long days = (long)(difftime(now, mktime(&epoch)) / 86400) + 1;
+        uint8_t bcd_sec = ((lt->tm_sec / 10) << 4) | (lt->tm_sec % 10);
         uint32_t dat = cpuGetAddrDS(dx);
         put16(dat, (uint16_t)days);
         memory[dat + 2] = ((lt->tm_hour / 10) << 4) | (lt->tm_hour % 10);
         memory[dat + 3] = ((lt->tm_min / 10) << 4) | (lt->tm_min % 10);
-        uint8_t bcd_sec = ((lt->tm_sec / 10) << 4) | (lt->tm_sec % 10);
         if(func == 155)
             memory[dat + 4] = bcd_sec; // T_SECONDS: extra seconds word at DAT+4
         debug(debug_dos, "CP/M get date/time: day %ld %02d:%02d:%02d\n", days,

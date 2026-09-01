@@ -262,6 +262,7 @@ int main(int argc, char **argv)
         case 'b':
         case 'r':
         case 'm':
+        case 'P':
         case 'X':
             if(argv[i][2])
                 opt = argv[i] + 2;
@@ -312,6 +313,17 @@ int main(int argc, char **argv)
             cpm86_tpa_kb_cli = (unsigned)v;
         }
         break;
+        case 'P':
+        {
+            long v = strtol(opt, &ep, 0);
+            if(*ep || v < 0 || v > 0xFF)
+                print_usage_error("CP/M-86 poison byte '%s' invalid (0..255).", opt);
+            cpm86_poison_cli = (int)v;
+        }
+        break;
+        case 'D':
+            cpm86_dirty_cli = 1;
+            break;
         case 'X':
         {
             FILE *cf = fopen(opt, "rb");
@@ -346,11 +358,6 @@ int main(int argc, char **argv)
     init_cpu();
 
     // EMU2_RAMDUMP=<file>: on exit, write the full 1 MB guest RAM to <file>.
-    // This gives an INDEPENDENT content oracle for CP/M-86 memory tests (the
-    // same role as cpm86run_unicorn.py --dump and the MAME RAM-dump Lua): a host
-    // scanner can verify what the guest actually wrote, without trusting the
-    // guest's own self-check. memory[] is a flat 0..0xFFFFF image (phys == file
-    // offset), so no translation is needed.
     if(getenv("EMU2_RAMDUMP"))
         atexit(dump_ram_on_exit);
 

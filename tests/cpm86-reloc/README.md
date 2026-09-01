@@ -21,7 +21,7 @@ reproduction with Open Watcom.
 | File | Reason | Source |
 |------|--------|--------|
 | `DRCFPTR.CMD` | Built by DR C 1.11 (LARGE, ~38 KB); requires DR C toolchain + MAME for verification | `drc_farptr.c` |
-| `FPTRMAME.CMD` | MAME-instrumented (signals pass/fail via port 0x2FE); requires rc759 MAME | `farptr_mame.c` |
+| `FPTRMAME.CMD` | MAME-instrumented (signals pass/fail via port 0x2FE); not useful outside a MAME session | `farptr_mame.c` |
 
 ## Building oracles
 
@@ -42,7 +42,7 @@ a prebuilt load-smoke only.
 
 `DRCFPTR.CMD` and `FPTRMAME.CMD` are also prebuilts (not in the Makefile):
 `DRCFPTR` requires the DR C 1.11 + LINK86 1.2 toolchain; `FPTRMAME` embeds
-MAME-specific port signalling and is not useful outside an rc759 session.
+MAME-specific port signalling and is not useful outside a MAME-hosted session.
 
 ## Running
 
