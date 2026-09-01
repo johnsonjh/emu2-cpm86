@@ -358,11 +358,6 @@ int main(int argc, char **argv)
     init_cpu();
 
     // EMU2_RAMDUMP=<file>: on exit, write the full 1 MB guest RAM to <file>.
-    // This gives an INDEPENDENT content oracle for CP/M-86 memory tests (the
-    // same role as cpm86run_unicorn.py --dump and the MAME RAM-dump Lua): a host
-    // scanner can verify what the guest actually wrote, without trusting the
-    // guest's own self-check. memory[] is a flat 0..0xFFFFF image (phys == file
-    // offset), so no translation is needed.
     if(getenv("EMU2_RAMDUMP"))
         atexit(dump_ram_on_exit);
 
