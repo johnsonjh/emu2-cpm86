@@ -30,6 +30,12 @@ NORETURN void print_usage(void)
            "  -b <addr>     Load header-less binary at address.\n"
            "  -r <seg>:<ip> Specify a run address to start execution.\n"
            "                (only for binary loaded data).\n"
+           "  -m <kb>       CP/M-86 TPA size in KB; same as CPM86_TPA_KB env var.\n"
+           "                Default: ~640K (standard DOS arena).\n"
+           "  -P <byte>     Fill free CP/M-86 memory with <byte> before loading\n"
+           "                (same as CPM86_POISON=<byte>); implies -D.\n"
+           "  -D            Fill free CP/M-86 memory with 0xFF before loading\n"
+           "                (same as CPM86_DIRTY_GROUPS).\n"
            "\n"
            "Environment variables:\n"
            "  %-18s  Base name of a file to write the debug log, defaults to\n"
@@ -56,11 +62,15 @@ NORETURN void print_usage(void)
            "\t\t      LRBC byte count but do not trim host files to it.\n"
            "  %-18s  Use the ISX last-record byte count convention (unused bytes)\n"
            "\t\t      instead of DOS Plus (used bytes); default off (DOS Plus).\n"
-           "  %-18s  CP/M-86 console emulation (VT52/colour); set 0 to disable.\n",
+           "  %-18s  CP/M-86 console emulation (VT52/colour); set 0 to disable.\n"
+           "  %-18s  CP/M-86 TPA size in KB; same as -m.\n"
+           "  %-18s  Fill free memory with <byte> before load (debug).\n"
+           "  %-18s  Fill free memory with 0xFF before load (debug).\n",
            prog_name, ENV_DBG_NAME, ENV_DBG_OPT, ENV_PROGNAME, ENV_DEF_DRIVE, ENV_CWD,
            ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_APPEND, ENV_DOSVER, ENV_ROWS,
            "EMU2_CPM_DISK", "EMU2_CPM_FREE", "EMU2_CPM_PLUS", ENV_CPMVER,
-           ENV_LRBC_NOTRUNC, ENV_CPM_ISXLRBC, "EMU2_VT52");
+           ENV_LRBC_NOTRUNC, ENV_CPM_ISXLRBC, "EMU2_VT52",
+           "CPM86_TPA_KB", "CPM86_POISON", "CPM86_DIRTY_GROUPS");
     exit(EXIT_SUCCESS);
 }
 

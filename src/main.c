@@ -261,6 +261,8 @@ int main(int argc, char **argv)
         {
         case 'b':
         case 'r':
+        case 'm':
+        case 'P':
         case 'X':
             if(argv[i][2])
                 opt = argv[i] + 2;
@@ -302,6 +304,25 @@ int main(int argc, char **argv)
                 if(*ep != 0 || bin_load_ip < 0 || bin_load_ip > 0xFFFF)
                     print_usage_error("binary run address '%s' invalid.", opt);
             }
+            break;
+        case 'm':
+        {
+            long v = strtol(opt, &ep, 0);
+            if(*ep || v <= 0 || v > 0xFFFF)
+                print_usage_error("CP/M-86 TPA size '%s' invalid.", opt);
+            cpm86_tpa_kb_cli = (unsigned)v;
+        }
+        break;
+        case 'P':
+        {
+            long v = strtol(opt, &ep, 0);
+            if(*ep || v < 0 || v > 0xFF)
+                print_usage_error("CP/M-86 poison byte '%s' invalid (0..255).", opt);
+            cpm86_poison_cli = (int)v;
+        }
+        break;
+        case 'D':
+            cpm86_dirty_cli = 1;
             break;
         case 'X':
         {

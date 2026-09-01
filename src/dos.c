@@ -2800,10 +2800,32 @@ void init_dos(int argc, char **argv)
     // ending address at 0xA0000.
     // We limit here memory to less than 512K to fix some old programs
     // that check memori using "JLE" instead of "JBE".
-    if(getenv(ENV_LOWMEM))
-        mcb_init(0x80, 0x7FFF);
-    else
-        mcb_init(0x80, 0xA000);
+    //
+    // CP/M-86: cap the MCB pool to the TPA size when -m / CPM86_TPA_KB is set,
+    // so loader and runtime M_ALLOC draw from the same ceiling.
+    {
+        int cpm86_will_run = 0;
+        FILE *pf = argc > 0 ? fopen(argv[0], "rb") : 0;
+        if(pf)
+        {
+            cpm86_will_run = cpm86_detect(pf, argv[0]);
+            fclose(pf);
+        }
+        int tpa_explicit = cpm86_will_run &&
+                           (cpm86_tpa_kb_cli || getenv("CPM86_TPA_KB"));
+        if(tpa_explicit)
+        {
+            unsigned tpa_kb = cpm86_get_tpa_kb();
+            uint32_t tpa_paras = (uint32_t)tpa_kb * 64; // 1 KB = 64 paragraphs
+            if(tpa_paras > 0xFF00)
+                tpa_paras = 0xFF00;
+            mcb_init(0x80, (uint16_t)(0x80 + tpa_paras));
+        }
+        else if(getenv(ENV_LOWMEM))
+            mcb_init(0x80, 0x7FFF);
+        else
+            mcb_init(0x80, 0xA000);
+    }
 
     // Init SYSVARS
     dos_sysvars = get_static_memory(128, 0);

@@ -7,3 +7,4 @@ obj/
 .test.c
 .test.exe
 .test.out
+tests/**/*.log
