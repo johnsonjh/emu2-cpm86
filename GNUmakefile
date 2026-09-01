@@ -33,6 +33,11 @@ obj/%.o: src/%.c | obj
 obj:
 	mkdir -p obj
 
+# Run the CP/M-86 loader relocation regression against the freshly built emu2.
+.PHONY: check test
+check test: emu2
+	EMU2=./emu2 sh tests/cpm86-reloc/run.sh
+
 .PHONY: clean distclean
 clean distclean:
 	rm -f .test.c .test.out $(OBJS:%=obj/%) emu2
