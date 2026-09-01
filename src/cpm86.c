@@ -482,6 +482,9 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     }
 
     // --- Allocate memory for the groups (paragraphs) ------------------------
+    // FIXME: (data == 0) is too broad -- a small/medium CMD with an empty
+    // DATA group is misclassified as 8080 (wrong entry IP 0x100, base-page
+    // assumptions).  Should key off the header group layout instead.
     int model_8080 = (data == 0);
     uint16_t code_par = code->max ? code->max : code->length;
     if(code_par < code->length)
