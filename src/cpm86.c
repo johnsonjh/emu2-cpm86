@@ -601,7 +601,7 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     }
 
     // Programs without an explicit STACK group get a small scratch stack in a
-    // separate segment below the data segment (CP/M-86 System Guide §4.1.2).
+    // separate segment below the data segment (CP/M-86 System Guide sec. 4.1.2).
     if(!stack_seg)
     {
         uint16_t avail = 0;
