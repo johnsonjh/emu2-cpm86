@@ -1,8 +1,8 @@
 /*
  * drc_farptr.c -- pointer-to-code-stub relocation oracle, DR C 1.11 LARGE model.
  *
- * The genuine "how it SHOULD be done" reference for the wlink Stage B test
- * contrib/ravn/test_stageb_farptr.c.  DR C's default LARGE model is exactly
+ * The genuine "how it SHOULD be done" reference for the wlink far-pointer test.
+ * DR C's default LARGE model is exactly
  * far-code/far-data: function pointers are 32-bit FAR, and LINK-86 emits the
  * CP/M-86 fixup records the loader relocates -- the same load-time-relocation
  * contract wlink now targets.  So a genuine-reference-compiler build that

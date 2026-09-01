@@ -1,20 +1,19 @@
-/* farptr_mame.c -- wlink Stage B (-mm -zm) pointer-to-code-stub relocation
- * oracle, instrumented to run headless on real CCP/M-86 in MAME rc759.
+/* farptr_mame.c -- wlink (-mm -zm) pointer-to-code-stub relocation oracle,
+ * instrumented for verification on real CCP/M-86 hardware via MAME.
  *
- * Same checks as the committed contrib/ravn/test_stageb_farptr.c, but built by
- * the NATIVE wlink path (wcc -mm -zm + wlink format cpm86) so it exercises
- * WLINK'S OWN emitted CP/M-86 fixup records on real hardware -- not DR C's.
- * Entry/stack/base-page come from crt759.asm (which calls this cpmmain).
+ * Built by the NATIVE wlink path (wcc -mm -zm + wlink format cpm86) so it
+ * exercises WLINK'S OWN emitted CP/M-86 fixup records on real hardware.
+ * Entry/stack/base-page come from a custom crt0 (which calls this cpmmain).
  *
- * Both oracles are made visible on the console (BDOS C_WRITE) so the screen is
- * the authoritative result, and the pass/fail is also signalled to the MAME
- * host on the undecoded port 0x2FE (mame-tests/done_signal.lua):
+ * Both oracles are visible on the console (BDOS C_WRITE):
  *   (a) VALUE : print the char RETURNED by calling through each relocated far
  *       pointer -- "OK!" means all four far calls landed on the right stub.
  *   (b) MEMORY: print '.' when the first code byte at each far pointer is a real
  *       relocated opcode (0xB8 = `mov ax,imm16`, the stub prologue) -- "...."
  *       means all four pointers address the exact expected relocated code.
- * Correct relocation -> "OK!\r\n....\r\n" and DONE-SIGNAL word 0x0008.
+ * Correct relocation -> "OK!\r\n....\r\n".
+ *
+ * NOT run by run.sh -- requires MAME for the port 0x2FE signal mechanism.
  */
 extern unsigned bdos( unsigned char func, unsigned dx );
 #pragma aux bdos =              \
