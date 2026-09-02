@@ -57,13 +57,13 @@ Examples:
 
 ```sh
 # Trace all DOS/BDOS calls made by a CP/M-86 program
-EMU2_DEBUG=dos emu2 myprog.cmd
+env EMU2_DEBUG="dos" emu2 myprog.cmd
 
 # Trace both BDOS calls and interrupt dispatch
-EMU2_DEBUG="dos int" emu2 myprog.cmd
+env EMU2_DEBUG="dos int" emu2 myprog.cmd
 
 # Save logs under a fixed base name (avoids per-run sequence numbers)
-EMU2_DEBUG=dos EMU2_DEBUG_NAME=trace emu2 myprog.cmd
+env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
 # -> writes trace-dos.0.log
 ```
 
