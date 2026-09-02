@@ -4,12 +4,13 @@
 
 A simple text-mode x86 + DOS and CP/M-86 emulator for UNIX-like systems.
 
-This is an 8088/8086/80186/80286 emulator and reimplementation of
-MS-DOS/PC-DOS and DRI CP/M-86 for the console, supporting most DOS
-and CP/M-86 system calls and video I/O.
+This is an 8088/8086/80186/80286 CPU emulator and a reimplementation of
+the Microsoft/IBM MS-DOS/PC-DOS and Digital Research CP/M-86 operating
+systems for the UNIX console, supporting most DOS and CP/M-86 system
+calls and text-mode video I/O.
 
-It is a (*hopefully temporary*) fork of the excellent `emu2`
-emulator available from [https://github.com/dmsc/emu2](https://github.com/dmsc/emu2)
+It is a fork of the excellent `emu2` emulator available from
+[https://github.com/dmsc/emu2](https://github.com/dmsc/emu2)
 and made available under the terms of the [GPL-v2.0 license](LICENSE).
 
 ## Using the emulator
@@ -55,13 +56,13 @@ The available keywords and what they trace:
 | `dos`   | All DOS INT 21h and CP/M-86 BDOS calls with their arguments and return values.  For CP/M-86 programs this also shows BDOS function names, FCB contents, file search results, memory allocation, and chain operations.  The most useful keyword for debugging application-level misbehaviour. |
 | `video` | Terminal/video initialisation and mode changes (screen size, text mode, clear events).  Not individual character output.  Useful when the display layout looks wrong. |
 
-Examples:
+### Debugging examples
 
 ```sh
-# Trace all DOS/BDOS calls made by a CP/M-86 program
+# Trace all DOS/BDOS calls made by a DOS or CP/M-86 program
 env EMU2_DEBUG="dos" emu2 myprog.cmd
 
-# Trace both BDOS calls and interrupt dispatch
+# Trace both DOS/BDOS calls and interrupt dispatch
 env EMU2_DEBUG="dos int" emu2 myprog.cmd
 
 # Save logs under a fixed base name (avoids per-run sequence numbers)
@@ -92,4 +93,4 @@ env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
 | `EMU2_LRBC_NOTRUNC` | By default, when LRBC is active (CP/M 3.0+), emu2 trims a host file to its exact byte count on close, so output is no longer rounded up to a whole 128-byte record. Set this (to any value other than `0`/`off`/`no`/`false`) to keep files padded to the record boundary while still reporting the byte count via `S1`. Has no effect under CP/M 2.2, which has no LRBC and is never trimmed. |
 | `EMU2_CPM_ISXLRBC` | Selects how the last-record byte count in `S1` is interpreted. There is no universally agreed meaning, so two conventions exist. By default emu2 follows Digital Research's DOS Plus / Personal CP/M-86: `S1` is the number of bytes *used* in the last record. Set this to use the ISX-style (ISIS-II emulator) convention instead, where `S1` is the number of *unused* bytes in the last record. In both conventions `S1` of `0` means the file fills its last record exactly. Has no effect under CP/M 2.2, which has no LRBC. |
 | `EMU2_VT52` | Native CP/M-86 programs drive the console as a DOS-PLUS (CP/M-86 4.1) terminal. emu2 interprets the console control sequences -- VT52 cursor/erase codes, DRI colour codes (`ESC b`/`ESC c`), and ANSI/VT100 codes -- and applies them to the emulated PC screen, or, for programs that never touch the BIOS video and so talk straight to the host terminal, translates them to the ANSI your terminal understands. On by default; set to `0`/`off`/`no` to disable. No effect on DOS. |
-| `EMU2_RAMDUMP` | Path of a file to write the full 1 MB guest RAM image on exit.  The file is written as a flat binary (offset 0 = physical address 0x00000).  Useful for post-mortem inspection after a crash: load into a hex editor or disassembler and inspect the stack, BSS, and heap at the moment the program ended.  Has no effect on program behaviour; the dump is always written regardless of whether the program exits cleanly or crashes. |
+| `EMU2_RAMDUMP` | Path of a file to write the full 1 MB guest RAM image on exit.  The file is written as a flat binary (offset `0` = physical address `0x00000`).  Useful for post-mortem inspection after a crash: load into a hex editor or disassembler and inspect the stack, BSS, and heap at the moment the program ended.  Has no effect on program behaviour; the dump is always written regardless of whether the program exits cleanly or crashes. |
