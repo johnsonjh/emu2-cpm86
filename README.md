@@ -1,15 +1,18 @@
-EMU2-CPM86: A simple text-mode x86 + DOS and CP/M-86 emulator
--------------------------------------------------------------
+# EMU2-CPM86
 
-This is a DOS and CP/M-86 emulator for the console,
-supporting basic DOS and CP/M-86 system calls and console I/O.
+## Overview
+
+A simple text-mode x86 + DOS and CP/M-86 emulator for UNIX-like systems.
+
+This is an 8088/8086/80186/80286 emulator and reimplementation of
+MS-DOS/PC-DOS and DRI CP/M-86 for the console, supporting most DOS
+and CP/M-86 system calls and video I/O.
 
 It is a (*hopefully temporary*) fork of the excellent `emu2`
 emulator available from [https://github.com/dmsc/emu2](https://github.com/dmsc/emu2)
 and made available under the terms of the [GPL-v2.0 license](LICENSE).
 
-Using the emulator
-------------------
+## Using the emulator
 
 To run a CP/M-86 `.cmd` file or a DOS `.exe` or `.com` file, simply
 load it with:
@@ -18,24 +21,23 @@ load it with:
 emu2 myprog.exe
 ```
 
+## Command-line options
+
 The emulator accepts some options in the command line and more options as
 environment variables, this allows child process (programs run by your DOS
 program) to inherit the configuration.
 
 The full usage is:
+```
+emu2 [options] <prog.exe> [args...] [-- environment vars]
+```
 
-    emu2 [options] <prog.exe> [args...] [-- environment vars]
-
-Options (should be placed *before* the DOS program name):
+Options (should be placed *before* the DOS or CP/M-86 program name):
 - `-h`        Shows a brief help.
-
 - `-b addr`   Load header-less binary at given address (to load ROMs or test data).
-
 - `-r <seg>:<ip>`  Specify a run address to start execution (only for binary loaded data).
 
-The available environment variables are:
-Debugging
----------
+## Debugging
 
 To trace what emu2 is doing, set `EMU2_DEBUG` to a comma- or space-separated
 list of one or more keywords.  Each active keyword writes a separate log file
@@ -67,9 +69,9 @@ env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
 # -> writes trace-dos.0.log
 ```
 
-`EMU2_RAMDUMP` (see below) complements the debug logs: it captures the full
-1 MB guest RAM image on exit, which is useful for post-mortem inspection of
-stack, BSS, and heap state after a crash.
+## Environment variables
+
+The available environment variables are:
 
 - `EMU2_DEBUG_NAME`    Base name of a file to write the debug log, defaults to
                        the exe name if not given.
@@ -78,7 +80,7 @@ stack, BSS, and heap state after a crash.
                        See the *Debugging* section above for details.
                        Available keywords: `cpu`, `int`, `port`, `dos`, `video`.
 
-- `EMU2_PROGNAME`      DOS program name, if not given try to convert the unix
+- `EMU2_PROGNAME`      DOS program name, if not given try to convert the UNIX
                        name to an equivalent DOS path.
 
 - `EMU2_DEFAULT_DRIVE` DOS default (current) drive letter, if not given use `C:`
@@ -87,8 +89,8 @@ stack, BSS, and heap state after a crash.
                        the current directory to the equivalent DOS path inside the
                        DOS default drive, or `C:\` if not possible.
 
-- `EMU2_DRIVE_`n       Set unix path as root of drive `n`, by default all drives
-                       point to the unix working directory.
+- `EMU2_DRIVE_`n       Set UNIX path as root of drive `n`, by default all drives
+                       point to the UNIX working directory.
 
 - `EMU2_APPEND`        Sets a list of paths to search for data files on open,
                        emulating the DOS `APPEND` command. Only files with a
