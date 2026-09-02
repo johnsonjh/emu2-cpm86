@@ -32,12 +32,12 @@ ifeq ($(GCC_CLANG),1)
  C99_WR:=$(shell printf '%s\n' \
   "int main(void){for(int i=0;i<1;++i);return 0;}" > .test.c; \
    $(CC) .test.c -o .test.out > /dev/null 2>&1; \
-    echo $$?; rm -f .test.c .test.out > /dev/null 2>&1)
+    printf '%s\n' "$$?"; rm -f .test.c .test.out > /dev/null 2>&1)
  ifeq ($(C99_WR),1)
   C99_OK:=$(shell printf '%s\n' \
    "int main(void){for(int i=0;i<1;++i);return 0;}" > .test.c; \
     $(CC) -std=gnu99 .test.c -o .test.out > /dev/null 2>&1; \
-     echo $$?; rm -f .test.c .test.out > /dev/null 2>&1)
+     printf '%s\n' "$$?"; rm -f .test.c .test.out > /dev/null 2>&1)
  endif
  ifeq ($(C99_OK),0)
   CFLAGS+=-std=gnu99
@@ -54,21 +54,21 @@ endif
 ifndef NO_LTO
  FLTO_WR:=$(shell printf '%s\n' "int main(void){return 0;}" > .test.c; \
   $(CC) -flto .test.c -o .test.out > /dev/null 2>&1; \
-   echo $$?; rm -f .test.c .test.out > /dev/null 2>&1)
+   printf '%s\n' "$$?"; rm -f .test.c .test.out > /dev/null 2>&1)
  ifeq ($(FLTO_WR),0)
   FLTO_OK:=$(shell printf '%s\n' "int main(void){return 0;}" > .test.c; \
    $(CC) -Werror -flto .test.c -o .test.out > /dev/null 2>&1; \
-    echo $$?; rm -f .test.c .test.out > /dev/null 2>&1)
+    printf '%s\n' "$$?"; rm -f .test.c .test.out > /dev/null 2>&1)
   ifeq ($(FLTO_OK),0)
    LTO_FLAGS:=-flto
    # Detect if CC supports `-flto=auto`
    AUTO_WR:=$(shell printf '%s\n' "int main(void){return 0;}" > .test.c; \
     $(CC) -flto=auto .test.c -o .test.out > /dev/null 2>&1; \
-     echo $$?; rm -f .test.c .test.out > /dev/null 2>&1)
+     printf '%s\n' "$$?"; rm -f .test.c .test.out > /dev/null 2>&1)
    ifeq ($(AUTO_WR),0)
     AUTO_OK:=$(shell printf '%s\n' "int main(void){return 0;}" > .test.c; \
      $(CC) -Werror -flto=auto .test.c -o .test.out > /dev/null 2>&1; \
-      echo $$?; rm -f .test.c .test.out > /dev/null 2>&1)
+      printf '%s\n' "$$?"; rm -f .test.c .test.out > /dev/null 2>&1)
     ifeq ($(AUTO_OK),0)
      LTO_FLAGS:=-flto=auto
     endif
