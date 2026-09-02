@@ -28,7 +28,7 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 EMU2="${EMU2:-$HERE/../../emu2}"
-[ -x "$EMU2" ] || { echo "SKIP: emu2 binary not found at $EMU2 (run 'make' first)"; exit 77; }
+[ -x "$EMU2" ] || { printf '%s\n' "SKIP: emu2 binary not found at $EMU2 (run 'make' first)"; exit 77; }
 
 fail=0
 
@@ -43,13 +43,13 @@ check_header() {
 
     g0=$(byte_at 0 "$f")
     if [ "$g0" != "$g0_want" ]; then
-        echo "FAIL  $1  group[0].type: got $g0, want $g0_want (CODE=01)"
+        printf '%s\n' "FAIL  $1  group[0].type: got $g0, want $g0_want (CODE=01)"
         ok=0
     fi
 
     g1=$(byte_at 9 "$f")
     if [ "$g1" != "$g1_want" ]; then
-        echo "FAIL  $1  group[1].type: got $g1, want $g1_want (DATA=02)"
+        printf '%s\n' "FAIL  $1  group[1].type: got $g1, want $g1_want (DATA=02)"
         ok=0
     fi
 
@@ -57,19 +57,19 @@ check_header() {
     g1lo=$(byte_at 10 "$f"); g1hi=$(byte_at 11 "$f")
     has_data=$(( 0x$g1lo != 0 || 0x$g1hi != 0 ))
     if [ "$has_data" != "$data_want" ]; then
-        echo "FAIL  $1  group[1] data: has_data=$has_data, want $data_want"
+        printf '%s\n' "FAIL  $1  group[1] data: has_data=$has_data, want $data_want"
         ok=0
     fi
 
     flags=$(byte_at 127 "$f")
     reloc=$(( (0x$flags & 0x80) != 0 ? 1 : 0 ))
     if [ "$reloc" != "$reloc_want" ]; then
-        echo "FAIL  $1  hdr[0x7F] reloc bit: got $reloc, want $reloc_want (flags=$flags)"
+        printf '%s\n' "FAIL  $1  hdr[0x7F] reloc bit: got $reloc, want $reloc_want (flags=$flags)"
         ok=0
     fi
 
     if [ "$ok" = 1 ]; then
-        echo "PASS  $1  header (g0=$g0 g1=$g1 data=$has_data reloc=$reloc)"
+        printf '%s\n' "PASS  $1  header (g0=$g0 g1=$g1 data=$has_data reloc=$reloc)"
     else
         fail=1
     fi
@@ -79,9 +79,9 @@ check() {                       # check <cmd-file> <expected-substring>
     local f="$HERE/$1" want="$2" out
     out="$("$EMU2" "$f" 2>/dev/null | tr -d '\r\000')"
     if printf '%s' "$out" | grep -q "$want"; then
-        echo "PASS  $1  (relocated, got '$want')"
+        printf '%s\n' "PASS  $1  (relocated, got '$want')"
     else
-        echo "FAIL  $1  expected '$want', got: $(printf '%s' "$out" | head -1)"
+        printf '%s\n' "FAIL  $1  expected '$want', got: $(printf '%s' "$out" | head -1)"
         fail=1
     fi
 }
@@ -91,9 +91,9 @@ check_load() {                  # check_load <cmd-file> -- load-smoke (no output
     "$EMU2" "$f" 2>/dev/null
     local rc=$?
     if [ "$rc" -le 128 ]; then
-        echo "PASS  $1  (loaded, exit rc=$rc)"
+        printf '%s\n' "PASS  $1  (loaded, exit rc=$rc)"
     else
-        echo "FAIL  $1  crashed (rc=$rc)"
+        printf '%s\n' "FAIL  $1  crashed (rc=$rc)"
         fail=1
     fi
 }
@@ -119,8 +119,9 @@ check SMALL.CMD   OK!
 check_load TINY.CMD
 
 if [ "$fail" = 0 ]; then
-    echo "P_LOAD relocation regression: ALL PASS"
+    printf '%s\n' "P_LOAD relocation regression: ALL PASS"
 else
-    echo "P_LOAD relocation regression: FAILURES"
+    printf '%s\n' "P_LOAD relocation regression: FAILURES"
 fi
+
 exit $fail
