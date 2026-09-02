@@ -6,12 +6,18 @@ A simple text-mode x86 + DOS and CP/M-86 emulator for UNIX-like systems.
 
 This is an 8088/8086/80186/80286 CPU emulator and a reimplementation of
 the Microsoft/IBM MS-DOS/PC-DOS and Digital Research CP/M-86 operating
-systems for the UNIX console, supporting most DOS and CP/M-86 system
-calls and text-mode video I/O.
+systems for the UNIX console.
+
+Most DOS and CP/M-86 system calls and text-mode video I/O is supported.
 
 It is a fork of the excellent `emu2` emulator available from
 [https://github.com/dmsc/emu2](https://github.com/dmsc/emu2)
 and made available under the terms of the [GPL-v2.0 license](LICENSE).
+
+## Availability
+
+* [`johnsonjh/emu2-cpm86`@ GitLab](https://gitlab.com/johnsonjh/emu2-cpm86)
+* [`johnsonjh/emu2-cpm86`@GitHub](https://github.com/johnsonjh/emu2-cpm86)
 
 ## Using the emulator
 
