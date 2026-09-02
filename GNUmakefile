@@ -20,7 +20,7 @@ OBJS=\
  main.o\
  timer.o\
  utils.o\
- video.o\
+ video.o
 
 .PHONY: all
 all: emu2
@@ -37,6 +37,8 @@ obj:
 .PHONY: check test
 check test: emu2
 	env EMU2=./emu2 sh tests/cpm86-reloc/run.sh
+	@echo "Running ASM86 truncation regression..."
+	root=$(CURDIR) EMU2=./emu2 sh tests/test_asm86_no_truncate.sh
 
 .PHONY: clean distclean
 clean distclean:
@@ -67,7 +69,7 @@ obj/loader.o: src/loader.c src/loader.h src/dbg.h src/os.h src/emu.h
 obj/main.o: src/main.c src/dbg.h src/os.h src/dos.h src/dosnames.h src/emu.h \
  src/keyb.h src/timer.h src/video.h
 obj/timer.o: src/timer.c src/timer.h src/dbg.h src/os.h src/emu.h
-obj/utils.o: src/utils.c src/utils.h src/dbg.h src/os.h
-obj/video.o: src/video.c src/video.h src/codepage.h src/dbg.h src/os.h \
+obj/utils.o: src/utils.c src/utils.h src/dbg.h src/os.h src/emu.h
+obj/video.o: src/video.c src/video.h src/codepage.h src/dbg.h src/os \
  src/emu.h src/env.h src/keyb.h
 obj/cpm86_console.o: src/cpm86_console.c src/cpm86_console.h src/dos.h src/video.h
