@@ -454,7 +454,7 @@ int dos_truncate_fcb(int fcb_addr, unsigned long length)
 {
     unsigned h = get16(fcb_addr + 0x18);
     FILE *f = (h < max_handles) ? handles[h] : 0;
-    if(!f || handle_written[h])
+    if(!f || !handle_written[h])
         return -1;
     fflush(f);
     if(ftruncate(fileno(f), (off_t)length))
