@@ -16,8 +16,8 @@ and made available under the terms of the [GPL-v2.0 license](LICENSE).
 
 ## Availability
 
-* [`johnsonjh/emu2-cpm86`@ GitLab](https://gitlab.com/johnsonjh/emu2-cpm86)
-* [`johnsonjh/emu2-cpm86`@GitHub](https://github.com/johnsonjh/emu2-cpm86)
+* [`johnsonjh/emu2-cpm86`@**GitLab**](https://gitlab.com/johnsonjh/emu2-cpm86)
+* [`johnsonjh/emu2-cpm86`@**GitHub**](https://github.com/johnsonjh/emu2-cpm86)
 
 ## Using the emulator
 
