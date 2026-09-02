@@ -37,6 +37,8 @@ obj:
 .PHONY: check test
 check test: emu2
 	EMU2=./emu2 sh tests/cpm86-reloc/run.sh
+	@echo "Running ASM86 truncation regression..."
+	root=$(CURDIR) EMU2=./emu2 sh tests/test_asm86_no_truncate.sh
 
 .PHONY: clean distclean
 clean distclean:
