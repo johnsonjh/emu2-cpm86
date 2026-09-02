@@ -1329,27 +1329,13 @@ void intr_cpm_bdos(void)
     // descend from CP/M), so each maps to the matching DOS INT 21h function.
     case 13: bdos_ret(bdos_via_dos(0x0D)); break; // reset disk system
     case 14: bdos_ret(bdos_via_dos(0x0E)); break; // select disk
-    case 16: // close file.  CP/M 3 LRBC: if the program stored a partial last-
-    {        // record byte count at FCB+32 (FCB+0x20), trim the host file to
-             // that exact length before closing so its on-disk size is no longer
-             // record-rounded.  Per CP/M 3 / DOS Plus, the LRBC lives at FCB+32,
-             // NOT in S1 (FCB+13); programs must reset FCB+32 to 0 before
-             // sequential I/O (the open handler only fills it, never clears it).
-        if(cpm_lrbc_trunc)
-        {
-            uint32_t fcb = cpuGetAddrDS(dx);
-            unsigned lrbc = memory[fcb + 0x20] & 0x7F; // FCB+32; 0 = full last record
-            unsigned long sz = get32(fcb + 0x10);
-            if(lrbc && sz)
-            {
-                unsigned long exact = cpm_lrbc_exact(sz, lrbc);
-                if(exact < sz)
-                    dos_truncate_fcb(fcb, exact);
-            }
-        }
+    case 16: // close file.  Per CP/M 3 / DOS Plus, the LRBC (last-record byte
+             // count) is set AFTER close via BDOS 30 (F_ATTRIB) with bit 7 of
+             // FCB+6 set — handled in case 30 below.  FCB+0x20 at close time is
+             // the CR (current record) field from sequential I/O, NOT an LRBC
+             // value, so we must not interpret it as one.
         bdos_ret(bdos_via_dos(0x10));
         break;
-    }
     case 17: bdos_ret(cpm_search(0x11)); break; // search for first (CP/M dir entry)
     case 18: bdos_ret(cpm_search(0x12)); break; // search for next
     case 19: bdos_ret(bdos_via_dos(0x13)); break; // delete file
