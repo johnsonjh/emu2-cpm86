@@ -1331,7 +1331,7 @@ void intr_cpm_bdos(void)
     case 14: bdos_ret(bdos_via_dos(0x0E)); break; // select disk
     case 16: // close file.  Per CP/M 3 / DOS Plus, the LRBC (last-record byte
              // count) is set AFTER close via BDOS 30 (F_ATTRIB) with bit 7 of
-             // FCB+6 set — handled in case 30 below.  FCB+0x20 at close time is
+             // FCB+6 set - handled in case 30 below.  FCB+0x20 at close time is
              // the CR (current record) field from sequential I/O, NOT an LRBC
              // value, so we must not interpret it as one.
         bdos_ret(bdos_via_dos(0x10));

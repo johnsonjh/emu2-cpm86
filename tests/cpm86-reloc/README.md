@@ -12,7 +12,7 @@ name tells you which load-time layout is under test.
 
 | File | Memory model | Prints | emu2-runnable | Source |
 |------|-------------|--------|---------------|--------|
-| `TINY.CMD`    | 8080 single-group (data==0, entry 0x100)         | —     | yes (load-smoke) | `tiny.c` |
+| `TINY.CMD`    | 8080 single-group (data==0, entry 0x100)         | -     | yes (load-smoke) | `tiny.c` |
 | `SMALL.CMD`   | small (near CODE+DATA, no P_LOAD fixups)          | `OK!` | yes | `small.c` |
 | `COMPACT.CMD` | compact (`__far` DATA pointer → CODE stubs)       | `OK!` | yes | `compact.c` |
 | `MEDIUM.CMD`  | medium (far calls, 4 funcs × separate `_TEXT`)    | `OK!` | yes | `medium.c` |
@@ -29,7 +29,7 @@ symbol `_small_code_`, so it cannot use the bare `cpmmain` + `option
 nodefaultlibs` style of the medium/compact oracles.  It has no P_LOAD fixups
 (reloc bit 0), so it verifies the loader's non-relocating two-group path.
 
-**`large.c` has no prebuilt `LARGE.CMD` and is not run** — Open Watcom ships no
+**`large.c` has no prebuilt `LARGE.CMD` and is not run** - Open Watcom ships no
 large-model CP/M-86 runtime (`clibl.lib`, `_cstart_`, `_big_code_` are all
 missing from the `cpm86` target), so a hosted large-model program cannot be
 linked, and small-model-style clib-free linking fails on `_big_code_` too.  The
