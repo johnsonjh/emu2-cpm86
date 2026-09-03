@@ -1,19 +1,19 @@
 
-// DOS file names to Unix file names conversions
+// DOS file names to UNIX file names conversions
 
 #ifndef DOSNAMES_H
 #define DOSNAMES_H
 
 #include <stdint.h>
 
-// Converts a DOS full path to equivalent Unix filename
+// Converts a DOS full path to equivalent UNIX filename
 // If the file exists, returns the name of the file.
 // If the file does not exists, and "force" is true, returns the possible lowercase name.
 // If the file does not exists, and "force" is false, returns null, but if append is not
 // null the search is retried searching inside the append paths.
 char *dos_unix_path(int addr, int force, const char *append);
 
-// Converts a DOS FCB file name to equivalent Unix filename
+// Converts a DOS FCB file name to equivalent UNIX filename
 // If the file exists, returns the name of the file.
 // If the file does not exists, and "force" is true, returns the possible lowercase name.
 // If the file does not exists, and "force" is false, returns null, but if append is not
@@ -24,7 +24,7 @@ char *dos_unix_path_fcb(int addr, int force, const char *append);
 int dos_change_cwd(char *path);
 int dos_change_dir(int addr);
 
-// Returns a DOS path representing given Unix path in drive
+// Returns a DOS path representing given UNIX path in drive
 char *dos_real_path(const char *unix_path);
 
 // Gets current working directory

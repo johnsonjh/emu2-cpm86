@@ -24,10 +24,10 @@ extern int cpm86_active;
 // TPA size override from "-m <kb>"; 0 = not set.
 extern unsigned cpm86_tpa_kb_cli;
 
-// TPA size in KB: "-m" > CPM86_TPA_KB env var > ~640K default.
+// TPA size in KB: "-m" > EMU2_CPM_TPA env var > ~640K default.
 unsigned cpm86_get_tpa_kb(void);
 
-// Poison byte from "-P <byte>"; -1 = not set (fall back to CPM86_POISON env var).
+// Poison byte from "-P <byte>"; -1 = not set (fall back to EMU2_CPM_POISON env var).
 extern int cpm86_poison_cli;
 
 // "-D" flag: fill free memory with 0xFF before loading; 0 = not set.

@@ -10,13 +10,91 @@
 
 char *prog_name;
 
+# define TRIM_BUFSIZE 256
+# define TRIM_RING 3 /* max reentrancy depth, use calls + 1 */
+
+static char *
+sqz_str(const char * const s)
+{
+    static char bufs [TRIM_RING] [TRIM_BUFSIZE];
+    static int idx = 0;
+
+    const char *p;
+    const char *q;
+    const char *last;
+
+    char *buf;
+    char *d;
+
+    buf = bufs[idx];
+    idx++;
+
+    if (idx >= TRIM_RING)
+        idx = 0;
+
+    if (s == 0) {
+        buf [0] = '\0';
+
+        return buf;
+    }
+
+    p = s;
+
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+        p++;
+
+    if (*p == '\0') {
+        buf[0] = '\0';
+
+        return buf;
+    }
+
+    q = p;
+    last = p;
+
+    while (*q != '\0') {
+        if (*q != ' ' && *q != '\t' && *q != '\r' && *q != '\n')
+            last = q;
+
+        q++;
+    }
+
+    d = buf;
+
+    {
+        int in_ws = 0;
+
+        while (p <= last && d < buf + (TRIM_BUFSIZE - 1)) {
+
+            if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
+                in_ws = 1;
+            } else {
+                if (in_ws) {
+                    *d++ = ' ';
+                    in_ws = 0;
+                }
+
+                *d++ = *p;
+            }
+
+            p++;
+        }
+    }
+
+    *d = '\0';
+
+    return buf;
+}
+
 void print_version(void)
 {
-    printf("EMU2 - Simple x86 + DOS and CP/M-86 Emulator, version " EMU2_VERSION
-#ifdef __DATE__
-           "  (Compiled " __DATE__ ")"
+    printf("emu2: x86, DOS, and CP/M-86 emulator, v" EMU2_VERSION
+#if defined (__DATE__) && defined (__TIME__)
+           " (built %s %s)\n", sqz_str(__DATE__), sqz_str(__TIME__)
+#elif defined (__DATE__)
+           " (built %s)\n", sqz_str(__DATE__)
 #endif
-           "\n");
+          );
 }
 
 NORETURN void print_usage(void)
@@ -30,23 +108,23 @@ NORETURN void print_usage(void)
            "  -b <addr>     Load header-less binary at address.\n"
            "  -r <seg>:<ip> Specify a run address to start execution.\n"
            "                (only for binary loaded data).\n"
-           "  -m <kb>       CP/M-86 TPA size in KB; same as CPM86_TPA_KB env var.\n"
+           "  -m <kb>       CP/M-86 TPA size in KB; same as EMU2_CPM_TPA env var.\n"
            "                Default: ~640K (standard DOS arena).\n"
            "  -P <byte>     Fill free CP/M-86 memory with <byte> before loading\n"
-           "                (same as CPM86_POISON=<byte>); implies -D.\n"
+           "                (same as EMU2_CPM_POISON=<byte>); implies -D.\n"
            "  -D            Fill free CP/M-86 memory with 0xFF before loading\n"
-           "                (same as CPM86_DIRTY_GROUPS).\n"
+           "                (same as EMU2_CPM_DIRTY).\n"
            "\n"
            "Environment variables:\n"
            "  %-18s  Base name of a file to write the debug log, defaults to\n"
            "\t\t      the exe name if not given.\n"
            "  %-18s  List of debug options to activate, from the following:\n"
            "\t\t      'cpu', 'int', 'port', 'dos', 'video'.\n"
-           "  %-18s  DOS program name, if not given use the unix name.\n"
+           "  %-18s  DOS program name, if not given use the UNIX name.\n"
            "  %-18s  DOS default (current) drive letter, if not given use 'C:'\n"
            "  %-18s  DOS current working directory, use 'C:\\' if not given.\n"
-           "  %-18s  Set unix path as root of drive 'n', by default all drives\n"
-           "\t\t      point to the unix working directory.\n"
+           "  %-18s  Set UNIX path as root of drive 'n', by default all drives\n"
+           "\t\t      point to the UNIX working directory.\n"
            "  %-18s  Set DOS code-page. Set to '?' to show list of code-pages.\n"
            "  %-18s  Limit DOS memory to 512KB, fixes some old buggy programs.\n"
            "  %-18s  Specifies a DOS append paths, separated by ';'.\n"
@@ -64,13 +142,13 @@ NORETURN void print_usage(void)
            "\t\t      instead of DOS Plus (used bytes); default off (DOS Plus).\n"
            "  %-18s  CP/M-86 console emulation (VT52/colour); set 0 to disable.\n"
            "  %-18s  CP/M-86 TPA size in KB; same as -m.\n"
-           "  %-18s  Fill free memory with <byte> before load (debug).\n"
-           "  %-18s  Fill free memory with 0xFF before load (debug).\n",
+           "  %-18s  Fill free memory with <byte> before loading (for debugging).\n"
+           "  %-18s  Fill free memory with 0xFF before loading (for debugging).\n",
            prog_name, ENV_DBG_NAME, ENV_DBG_OPT, ENV_PROGNAME, ENV_DEF_DRIVE, ENV_CWD,
            ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_APPEND, ENV_DOSVER, ENV_ROWS,
            "EMU2_CPM_DISK", "EMU2_CPM_FREE", "EMU2_CPM_PLUS", ENV_CPMVER,
-           ENV_LRBC_NOTRUNC, ENV_CPM_ISXLRBC, "EMU2_VT52",
-           "CPM86_TPA_KB", "CPM86_POISON", "CPM86_DIRTY_GROUPS");
+           ENV_LRBC_NOTRUNC, ENV_CPM_ISXLRBC, "EMU2_CPM_VT52",
+           "EMU2_CPM_TPA", "EMU2_CPM_POISON", "EMU2_CPM_DIRTY");
     exit(EXIT_SUCCESS);
 }
 

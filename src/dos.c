@@ -590,7 +590,7 @@ static int dos_rw_record_fcb(unsigned addr, int write, int update, int seq)
     }
 }
 
-// Converts Unix time_t to DOS time/date
+// Converts UNIX time_t to DOS time/date
 static uint32_t get_time_date(time_t tm)
 {
     struct tm lt;
@@ -604,7 +604,7 @@ static uint32_t get_time_date(time_t tm)
         return (1 << 16) | 1;
 }
 
-// Converts Unix mode to DOS attributes
+// Converts UNIX mode to DOS attributes
 static int get_attributes(mode_t md)
 {
     int r = 0;
@@ -762,7 +762,7 @@ static void dos_find_next(int first)
     {
         debug(debug_dos, "\t'%s' ('%s')\n", d->dosname, d->unixname);
 
-        // Fills the Find First Data from a dos/unix name pair
+        // Fills the Find First Data from a DOS/UNIX name pair
         if(strcmp("//", d->unixname))
         {
             // Normal file/directory
@@ -2801,7 +2801,7 @@ void init_dos(int argc, char **argv)
     // We limit here memory to less than 512K to fix some old programs
     // that check memori using "JLE" instead of "JBE".
     //
-    // CP/M-86: cap the MCB pool to the TPA size when -m / CPM86_TPA_KB is set,
+    // CP/M-86: cap the MCB pool to the TPA size when -m / EMU2_CPM_TPA is set,
     // so loader and runtime M_ALLOC draw from the same ceiling.
     {
         int cpm86_will_run = 0;
@@ -2812,7 +2812,7 @@ void init_dos(int argc, char **argv)
             fclose(pf);
         }
         int tpa_explicit = cpm86_will_run &&
-                           (cpm86_tpa_kb_cli || getenv("CPM86_TPA_KB"));
+                           (cpm86_tpa_kb_cli || getenv("EMU2_CPM_TPA"));
         if(tpa_explicit)
         {
             unsigned tpa_kb = cpm86_get_tpa_kb();

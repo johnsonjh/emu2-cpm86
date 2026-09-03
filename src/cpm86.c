@@ -62,20 +62,20 @@ int cpm86_active = 0;
 // TPA size override from "-m <kb>"; 0 = not set (see cpm86_get_tpa_kb).
 unsigned cpm86_tpa_kb_cli = 0;
 
-// Poison byte from "-P <byte>"; -1 = not set (fall back to CPM86_POISON env var).
+// Poison byte from "-P <byte>"; -1 = not set (fall back to EMU2_CPM_POISON env var).
 int cpm86_poison_cli = -1;
 
 // "-D" flag: fill free memory with 0xFF before loading; 0 = not set.
 int cpm86_dirty_cli = 0;
 
-// TPA size in KB: "-m" > CPM86_TPA_KB env var > ~640K default.
+// TPA size in KB: "-m" > EMU2_CPM_TPA env var > ~640K default.
 // Used by both the CMD loader and dos.c MCB init so they agree on one ceiling.
 unsigned cpm86_get_tpa_kb(void)
 {
     static const unsigned default_tpa_kb = 640;
     if(cpm86_tpa_kb_cli)
         return cpm86_tpa_kb_cli;
-    const char *e = getenv("CPM86_TPA_KB");
+    const char *e = getenv("EMU2_CPM_TPA");
     if(e && *e)
     {
         unsigned v = (unsigned)strtoul(e, 0, 0);
@@ -104,7 +104,7 @@ static void cpm_set_dta(void); // defined below; used by the loader
 // actual count.  Search results (BDOS 17/18) also carry the LRBC at ENTRY+13
 // (S1) of each fabricated directory entry.  Older programs that check for 2.2
 // leave FCB+32 alone, so the metadata is only exposed when we report 3.0+.
-// Default is CP/M 3.1; override with EMU2_CPMVER (e.g. "2.2", "3.1").
+// Default is CP/M 3.1; override with EMU2_CPM_VER (e.g. "2.2", "3.1").
 static uint16_t cpm_version = 0x0031; // packed BDOS version, 0x31 = CP/M 3.1
 static int cpm_lrbc = 1;              // expose LRBC byte-count metadata (CP/M 3+)
 static int cpm_lrbc_trunc = 1;        // also trim host files to the LRBC length
@@ -136,7 +136,7 @@ static unsigned long cpm_lrbc_exact(unsigned long sz, unsigned lrbc)
     return (recs - 1) * 128 + lrbc;     // lrbc = used bytes in the last record
 }
 
-// Parse EMU2_CPMVER ("3.1", "2.2", "3", ...) into the reported BDOS version and
+// Parse EMU2_CPM_VER ("3.1", "2.2", "3", ...) into the reported BDOS version and
 // decide whether to expose the LRBC byte-count metadata (CP/M 3.0 and later).
 static void cpm_init_version(void)
 {
@@ -153,7 +153,7 @@ static void cpm_init_version(void)
         cpm_version = (uint16_t)(((major & 0x0F) << 4) | (minor & 0x0F));
     }
     cpm_lrbc = (cpm_version & 0xFF) >= 0x30;
-    // EMU2_LRBC_NOTRUNC (any value but 0/off/no/false) keeps the LRBC byte count
+    // EMU2_CPM_NOTRUNC (any value but 0/off/no/false) keeps the LRBC byte count
     // visible but stops emu2 from trimming host files to that exact length, in
     // case a tool relies on output staying padded to the 128-byte record.  Host
     // truncation also implies LRBC, so a pre-3.0 version (which has no LRBC)
@@ -455,7 +455,7 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     if(!code)
         return 0;
 
-    // -P <byte> / -D / CPM86_POISON=<byte> / CPM86_DIRTY_GROUPS:
+    // -P <byte> / -D / EMU2_CPM_POISON=<byte> / EMU2_CPM_DIRTY:
     // fill free memory before loading to surface uninitialized-read bugs.
     // CLI flags take precedence over env vars.
     int dirty_groups = 0;
@@ -471,8 +471,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     }
     else
     {
-        const char *dg = getenv("CPM86_DIRTY_GROUPS");
-        const char *pe = getenv("CPM86_POISON");
+        const char *dg = getenv("EMU2_CPM_DIRTY");
+        const char *pe = getenv("EMU2_CPM_POISON");
         if(dg && *dg && *dg != '0')
             dirty_groups = 1;
         if(pe && *pe)
@@ -1308,7 +1308,7 @@ void intr_cpm_bdos(void)
     case 10: bdos_ret(bdos_via_dos(0x0A)); break; // read console buffer
     case 11: bdos_ret(cpm_con_status()); break;   // console status
 
-    case 12: // Return Version Number (0x0022 = 2.2, 0x0031 = 3.1); EMU2_CPMVER
+    case 12: // Return Version Number (0x0022 = 2.2, 0x0031 = 3.1); EMU2_CPM_VER
         bdos_ret(cpm_version);
         break;
 
@@ -1380,7 +1380,7 @@ void intr_cpm_bdos(void)
         // CP/M 3 / DOS Plus exact-size: the documented way to record a file's
         // last-record byte count is to re-issue F_ATTRIB with F6' (bit 7 of FCB
         // byte 6) set and the byte count in FCB+0x20.  When LRBC truncation is
-        // enabled (off under EMU2_LRBC_NOTRUNC or CP/M 2.2), trim the closed
+        // enabled (off under EMU2_CPM_NOTRUNC or CP/M 2.2), trim the closed
         // host file to the exact length that count implies.  dos_truncate_fcb_name
         // refuses any trim larger than one 128-byte record, so a stray F6' or a
         // bogus count cannot discard real data.

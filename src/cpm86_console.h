@@ -13,5 +13,5 @@
 // Feed every console-output byte to cpm_console_putch() (the caller does this only
 // while cpm86_active).  Returns 1 when the byte was consumed as part of a control
 // sequence, or 0 when it is an ordinary character the caller should print itself.
-// Disabled with EMU2_VT52=0.
+// Disabled with EMU2_CPM_VT52=0.
 int cpm_console_putch(char ch);
