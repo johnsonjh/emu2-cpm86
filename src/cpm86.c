@@ -1345,7 +1345,21 @@ void intr_cpm_bdos(void)
     case 21: bdos_ret(bdos_seq(0x15)); break; // write sequential
     case 22: bdos_ret(bdos_via_dos(0x16)); break; // make file
     case 23: bdos_ret(bdos_via_dos(0x17)); break; // rename file
-    case 33: bdos_ret(bdos_read(0x21)); break; // read random
+    case 33: // read random — CP/M-86 updates the sequential file position to the
+    {        // record just read, so subsequent sequential I/O starts from there.
+             // DOS fn=0x21 does not do this; apply the update manually on success.
+        unsigned r = bdos_read(0x21);
+        if(r == 0)
+        {
+            int fcb = cpuGetAddrDS(cpuGetDX());
+            if(memory[fcb] == 255) fcb += 7; // extended FCB: skip 7-byte prefix
+            unsigned rand = get16(0x21 + fcb) | ((unsigned)memory[0x23 + fcb] << 16);
+            memory[0x20 + fcb] = rand & 127;   // CR  = rand mod 128
+            put16(0x0C + fcb, rand / 128);     // EX  = rand / 128
+        }
+        bdos_ret(r);
+    }
+    break;
     case 34: bdos_ret(bdos_via_dos(0x22)); break; // write random
     case 35: bdos_ret(bdos_via_dos(0x23)); break; // compute file size
     case 36: bdos_ret(bdos_via_dos(0x24)); break; // set random record
