@@ -487,6 +487,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     // assumptions).  Should key off the header group layout instead.
     int model_8080 = (data == 0);
     uint16_t code_par = code->max ? code->max : code->length;
+    if(code_par < code->min)    // code group min may reserve space for overlay buffers
+         code_par = code->min;
     if(code_par < code->length)
         code_par = code->length;
 
