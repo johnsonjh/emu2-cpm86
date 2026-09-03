@@ -807,7 +807,7 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     // Separate-group (small/compact) models enter at code:0.
     cpuSetIP(model_8080 ? 0x100 : 0);
     cpuSetDS(cpm_base_seg);
-    cpuSetES(cpm_base_seg);
+    cpuSetES(extra_seg ? extra_seg : cpm_base_seg);
     // SS: NOT cpm_base_seg. stack_seg is now always set (either the CMD's own
     // declared STACK group, or the spec-default scratch stack allocated
     // above), so the program starts on a segment genuinely separate from DS,
