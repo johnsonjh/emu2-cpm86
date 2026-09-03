@@ -127,9 +127,10 @@ NORETURN void print_usage(void)
            "\t\t      point to the UNIX working directory.\n"
            "  %-18s  Set DOS code-page. Set to '?' to show list of code-pages.\n"
            "  %-18s  Limit DOS memory to 512KB, fixes some old buggy programs.\n"
-           "  %-18s  Specifies a DOS append paths, separated by ';'.\n"
+           "  %-18s  Specifies DOS APPEND paths, separated by ';'.\n"
            "  %-18s  Set version of DOS to emulate, e.g. '2.11', '3.20', etc.\n"
            "  %-18s  Setup text mode with given number of rows, from 12 to 50.\n"
+           "  %-18s  Specifies CP/M-86 APPEND drive letters, separated by ';'.\n"
            "  %-18s  CP/M-86 disk block size: auto|1k|2k|4k|8k|16k (per drive\n"
            "\t\t      with EMU2_CPM_DISK_<letter>).\n"
            "  %-18s  CP/M-86 auto-disk target free-space percent (default 25).\n"
@@ -144,11 +145,29 @@ NORETURN void print_usage(void)
            "  %-18s  CP/M-86 TPA size in KB; same as -m.\n"
            "  %-18s  Fill free memory with <byte> before loading (for debugging).\n"
            "  %-18s  Fill free memory with 0xFF before loading (for debugging).\n",
-           prog_name, ENV_DBG_NAME, ENV_DBG_OPT, ENV_PROGNAME, ENV_DEF_DRIVE, ENV_CWD,
-           ENV_DRIVE "n", ENV_CODEPAGE, ENV_LOWMEM, ENV_APPEND, ENV_DOSVER, ENV_ROWS,
-           "EMU2_CPM_DISK", "EMU2_CPM_FREE", "EMU2_CPM_PLUS", ENV_CPMVER,
-           ENV_LRBC_NOTRUNC, ENV_CPM_ISXLRBC, "EMU2_CPM_VT52",
-           "EMU2_CPM_TPA", "EMU2_CPM_POISON", "EMU2_CPM_DIRTY");
+           prog_name,
+	   ENV_DBG_NAME,
+	   ENV_DBG_OPT,
+	   ENV_PROGNAME,
+	   ENV_DEF_DRIVE,
+	   ENV_CWD,
+           ENV_DRIVE "n",
+	   ENV_CODEPAGE,
+	   ENV_LOWMEM,
+	   ENV_APPEND,
+	   ENV_DOSVER,
+	   ENV_ROWS,
+	   ENV_CPM_APPEND,
+	   "EMU2_CPM_DISK",
+	   "EMU2_CPM_FREE",
+	   "EMU2_CPM_PLUS",
+	   ENV_CPMVER,
+	   ENV_LRBC_NOTRUNC,
+	   ENV_CPM_ISXLRBC,
+	   "EMU2_CPM_VT52",
+	   "EMU2_CPM_TPA",
+	   "EMU2_CPM_POISON",
+	   "EMU2_CPM_DIRTY");
     exit(EXIT_SUCCESS);
 }
 
