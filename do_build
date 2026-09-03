@@ -1,6 +1,0 @@
-#!/bin/bash
-make clean
-make -j6 all 
-if [ -f emu2 ];then
-    cp emu2 $HOME/.local.darwin/emulators/bin/dos
-fi
