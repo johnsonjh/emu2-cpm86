@@ -33,6 +33,8 @@ static uint32_t nls_dbc_set_table;
 static uint8_t *nls_country_info;
 static uint32_t dos_sysvars;
 static uint32_t dos_append;
+static char cpm_append_buf[256];
+static char *cpm_append_env = NULL;
 
 // Last error - used to implement "get extended error"
 static uint8_t dos_error;
@@ -40,6 +42,8 @@ static uint8_t dos_error;
 // Returns "APPEND" path, if activated:
 static const char *append_path(void)
 {
+    if(cpm86_active)
+        return cpm_append_env;
     return (memory[dos_append] & 0x01) ? ((char *)memory + dos_append + 2) : 0;
 }
 
@@ -2618,6 +2622,34 @@ static char *addstr(char *dst, const char *src, int limit)
 static void init_append(void)
 {
     char *env = getenv(ENV_APPEND);
+    char *cpm_env = getenv(ENV_CPM_APPEND);
+
+    if(cpm_env)
+    {
+        const char *s = cpm_env;
+        char *d = cpm_append_buf;
+
+        while(*s && (d - cpm_append_buf) < 250)
+        {
+            if((*s >= 'A' && *s <= 'Z') || (*s >= 'a' && *s <= 'z'))
+            {
+                if(s[1] == ';' || s[1] == 0)
+                {
+                    *d++ = *s++;
+                    *d++ = ':';
+                    if(*s == ';')
+                        *d++ = *s++;
+                    continue;
+                }
+            }
+
+            *d++ = *s++;
+        }
+
+        *d = 0;
+        cpm_append_env = cpm_append_buf;
+    }
+
     // allocate append path and status
     dos_append = get_static_memory(0x100 + 2, 0);
     if(env)

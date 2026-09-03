@@ -643,8 +643,10 @@ char *dos_unix_path_fcb(int addr, int force, const char *append)
     else
     {
         drive = drive - 1;
-        // Don't append if drive is specified.
-        append = 0;
+        // Don't append if drive is specified -- except for CP/M-86 append when
+        // the FCB drive is the default drive, so merged drives are searched.
+        if(!(cpm86_active && drive == dos_default_drive))
+            append = 0;
     }
     // And copy file name
     char *fcb_name = getstr(addr + 1, 11);

@@ -2,6 +2,7 @@
 
 // Environment variable names
 #define ENV_APPEND    "EMU2_APPEND"
+#define ENV_CPM_APPEND "EMU2_CPM_APPEND"
 #define ENV_DBG_NAME  "EMU2_DEBUG_NAME"
 #define ENV_DBG_OPT   "EMU2_DEBUG"
 #define ENV_PROGNAME  "EMU2_PROGNAME"
