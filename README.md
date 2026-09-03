@@ -16,8 +16,8 @@ and made available under the terms of the [GPL-v2.0 license](LICENSE).
 
 ## Availability
 
-* [`johnsonjh/emu2-cpm86`&nbsp;@&nbsp;**GitLab**](https://gitlab.com/johnsonjh/emu2-cpm86)
-* [`johnsonjh/emu2-cpm86`&nbsp;@&nbsp;**GitHub**](https://github.com/johnsonjh/emu2-cpm86)
+* [`johnsonjh/emu2-cpm86`&nbsp;@**GitLab**](https://gitlab.com/johnsonjh/emu2-cpm86)
+* [`johnsonjh/emu2-cpm86`&nbsp;@**GitHub**](https://github.com/johnsonjh/emu2-cpm86)
 
 ## Using the emulator
 
@@ -100,5 +100,5 @@ env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
 | `EMU2_CPM_ISXLRBC` | Selects how the Last-Record Byte Count in `S1` is interpreted. There is no universally agreed meaning, so two conventions exist. By default emu2 follows Digital Research's DOS Plus / Personal CP/M-86: `S1` is the number of bytes *used* in the last record. Set this to use the ISX-style (ISIS-II emulator) convention instead, where `S1` is the number of *unused* bytes in the last record. In both conventions `S1` of `0` means the file fills its last record exactly. Has no effect under CP/M 2.2, which has no LRBC. |
 | `EMU2_CPM_VT52` | Native CP/M-86 programs drive the console as a DOS-Plus (CP/M-86 4.1) terminal. emu2 interprets the console control sequences: VT52 cursor/erase codes, DRI colour codes (`ESC b`/`ESC c`), and ANSI/VT100 codes.  It applies them to the emulated PC screen, or, for programs that never touch the BIOS video and so talk straight to the host terminal, translates them to the ANSI your terminal understands. On by default; set to `0`/`off`/`no` to disable. No effect on DOS. |
 | `EMU2_RAMDUMP` | Path of a file to write the full 1 MB guest RAM image on exit.  The file is written as a flat binary (offset `0` = physical address `0x00000`).  Useful for post-mortem inspection after a crash: load into a hex editor or disassembler and inspect the stack, BSS, and heap at the moment the program ended.  Has no effect on program behaviour; the dump is always written regardless of whether the program exits cleanly or crashes. |
-| `EMU2_CPM_POISON` | Fill free CP/M-86 memory with <byte> specified before loading (for debugging). |
-| `EMU2_CPM_DIRY` | Fill free CP/M-86 memory with 0xFF before loading (for debugging). |
+| `EMU2_CPM_POISON` | Fill free CP/M-86 memory with byte specified before loading (for debugging). |
+| `EMU2_CPM_DIRY` | Fill free CP/M-86 memory with `0xFF` before loading (for debugging). |
