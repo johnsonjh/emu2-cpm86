@@ -487,6 +487,8 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     // assumptions).  Should key off the header group layout instead.
     int model_8080 = (data == 0);
     uint16_t code_par = code->max ? code->max : code->length;
+    if(code_par < code->min)    // code group min may reserve space for overlay buffers
+         code_par = code->min;
     if(code_par < code->length)
         code_par = code->length;
 
@@ -807,7 +809,7 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     // Separate-group (small/compact) models enter at code:0.
     cpuSetIP(model_8080 ? 0x100 : 0);
     cpuSetDS(cpm_base_seg);
-    cpuSetES(cpm_base_seg);
+    cpuSetES(extra_seg ? extra_seg : cpm_base_seg);
     // SS: NOT cpm_base_seg. stack_seg is now always set (either the CMD's own
     // declared STACK group, or the spec-default scratch stack allocated
     // above), so the program starts on a segment genuinely separate from DS,
