@@ -9,6 +9,7 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <sys/time.h>
 #include <termios.h>
 #include <unistd.h>
@@ -34,6 +35,14 @@ static int queued_key = -1;
 static int waiting_key = 0;
 static int mod_state = 0;
 static int throttle_calls = 0;
+
+// Keyboard scripting
+static const char *script_data = NULL;
+static int script_len = 0;
+static int script_index = 0;
+static struct timespec last_inject_time = {0, 0};
+static int script_delay_ms = 1;
+static int script_initial_delay_ms = 1;
 
 // Copy mod-state to BIOS memory area
 static void update_bios_state(void)
@@ -101,6 +110,124 @@ enum mod_keys
     MOD_CTRL = 4,
     MOD_ALT = 8
 };
+
+// set initial keyboard script key
+void keyb_set_script_initial_delay(int ms)
+{
+    if(ms < 0) ms = 0;
+    if(ms > 1000000) ms = 1000000;
+    script_initial_delay_ms = ms;
+}
+
+// set per-key keyboard script delay
+void keyb_set_script_delay(int ms)
+{
+    if(ms < 0) ms = 0;
+    if(ms > 1000000) ms = 1000000;
+    script_delay_ms = ms;
+}
+
+// Normalize DOS/UNIX line edings in a keyboard script file
+static char *normalize_script(const char *raw_data, int raw_len, int *out_len)
+{
+    char *normalized = malloc(raw_len);
+    if(!normalized)
+        return NULL;
+
+    int out_idx = 0;
+    for(int i = 0; i < raw_len; i++)
+    {
+        if(raw_data[i] == 0xD) // CR
+        {
+            // skip CR if followed by LF otherwise keep
+            if(i + 1 < raw_len && raw_data[i + 1] == 0xA)
+            {
+                normalized[out_idx++] = 0xD; // keep CR from CRLF pair
+                i++;
+            }
+            else
+            {
+                normalized[out_idx++] = 0xD; // keep plain CR
+            }
+        }
+        else if(raw_data[i] == 0xA) // LF alone?
+        {
+            normalized[out_idx++] = 0xD; // convert LF to CR
+        }
+        else
+        {
+            normalized[out_idx++] = raw_data[i];
+        }
+    }
+
+    *out_len = out_idx;
+    return normalized;
+}
+
+// load a keyboard script file
+void keyb_load_script(const char *filename, int delay_ms)
+{
+    FILE *f = fopen(filename, "rb");
+    if(!f)
+    {
+        print_error("can't open script '%s': %s\n", filename, strerror(errno));
+        return;
+    }
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    if(size <= 0 || size > 1000000)
+    {
+        print_error("script file '%s' is invalid\n", filename);
+        fclose(f);
+        return;
+    }
+
+    char *raw = malloc(size);
+    if(!raw)
+    {
+        print_error("can't allocate memory for script\n");
+        fclose(f);
+        return;
+    }
+
+    if(fread(raw, 1, size, f) != size)
+    {
+        print_error("script read error\n");
+        free(raw);
+        fclose(f);
+        return;
+    }
+    fclose(f);
+
+    // normalize script
+    char *normalized = normalize_script(raw, size, &script_len);
+    free(raw);
+
+    if(!normalized)
+    {
+        print_error("error processing script\n");
+        return;
+    }
+
+    script_data = normalized;
+    script_index = 0;
+
+    if(delay_ms < 0)
+        delay_ms = 0;
+
+    if(delay_ms > 1000000)
+        delay_ms = 1000000;
+
+    script_delay_ms = delay_ms;
+
+    clock_gettime(CLOCK_MONOTONIC, &last_inject_time);
+
+    debug(debug_int, "loaded script '%s': %d bytes (delay %d ms, initial %d ms)\n",
+          filename, script_len, script_delay_ms, script_initial_delay_ms);
+}
 
 static int get_special_code(int key)
 {
@@ -229,6 +356,38 @@ static int add_scancode(int i)
         return i | get_scancode(i);
     else
         return i;
+}
+
+// Inject scripted keys with delay
+static void inject_script_char(void)
+{
+    if(!script_data || script_index >= script_len)
+        return;
+
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+
+    long elapsed_ms = (now.tv_sec  - last_inject_time.tv_sec) * 1000 +
+                      (now.tv_nsec - last_inject_time.tv_nsec) / 1000000;
+
+    long needed_ms = (script_index == 0 && script_initial_delay_ms > 0)
+                      ? script_initial_delay_ms : script_delay_ms;
+
+    if(elapsed_ms < needed_ms)
+        return;
+
+    char ch = script_data[script_index++];
+
+    int code = add_scancode((unsigned char)ch);
+
+    if(queued_key == -1)
+    {
+        queued_key = code;
+        update_bios_state();
+        cpuTriggerIRQ(1);
+    }
+
+    last_inject_time = now;
 }
 
 // Convert key-code with ALT to scan-code
@@ -503,6 +662,10 @@ int getch(int detect_brk)
 
 void update_keyb(void)
 {
+    // Inject keyboard script keys
+    if(script_data)
+        inject_script_char();
+
     // See if any key is available:
     if(tty_fd >= 0 && term_raw && !waiting_key && queued_key == -1)
         kbhit();
