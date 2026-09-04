@@ -10,7 +10,7 @@ systems for the UNIX console.
 
 Most DOS and CP/M-86 system calls and text-mode video I/O is supported.
 
-It is a fork of the excellent `emu2` emulator available from
+It is an enhanced fork of the excellent `emu2` emulator available from
 [https://github.com/dmsc/emu2](https://github.com/dmsc/emu2)
 and made available under the terms of the [GPL-v2.0 license](LICENSE).
 
@@ -48,6 +48,8 @@ Options (should be placed *before* the DOS or CP/M-86 program name):
 | `-r <seg>:<ip>` | Specify a run address to start execution (only for binary loaded data). |
 | `-m <kb>` | CP/M-86 TPA size in KB; same as `EMU2_CPM_TPA` env var (~640K default). |
 | `-s <file>` | Specify a keystroke script file. |
+| `-d <ms>` | Delay `<ms>` between each keyboard script character. Default is 1ms; use '0' to send as fast as possible. |
+| `-i <ms>` | Delay `<ms>` before sending any keyboard script characters. |
 | `-P <byte>` | Fill free CP/M-86 memory with `<byte>` before loading (same as `EMU2_CPM_POISON=<byte>`). |
 | `-D` | Fill free CP/M-86 memory with `0xFF` before loading (same as `EMU2_CPM_DIRTY`). |
 
@@ -78,9 +80,8 @@ env EMU2_DEBUG="dos" emu2 myprog.cmd
 # Trace both DOS/BDOS calls and interrupt dispatch
 env EMU2_DEBUG="dos int" emu2 myprog.cmd
 
-# Save logs under a fixed base name (avoids per-run sequence numbers)
+# Save logs under a fixed base name and avoids per-run sequence numbers
 env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
-# -> writes trace-dos.0.log
 ```
 
 ## Environment variables

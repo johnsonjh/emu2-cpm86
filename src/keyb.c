@@ -41,7 +41,8 @@ static const char *script_data = NULL;
 static int script_len = 0;
 static int script_index = 0;
 static struct timespec last_inject_time = {0, 0};
-static int script_delay_ms = 100;
+static int script_delay_ms = 1;
+static int script_initial_delay_ms = 1;
 
 // Copy mod-state to BIOS memory area
 static void update_bios_state(void)
@@ -109,6 +110,22 @@ enum mod_keys
     MOD_CTRL = 4,
     MOD_ALT = 8
 };
+
+// set initial keyboard script key
+void keyb_set_script_initial_delay(int ms)
+{
+    if(ms < 0) ms = 0;
+    if(ms > 1000000) ms = 1000000;
+    script_initial_delay_ms = ms;
+}
+
+// set per-key keyboard script delay
+void keyb_set_script_delay(int ms)
+{
+    if(ms < 0) ms = 0;
+    if(ms > 1000000) ms = 1000000;
+    script_delay_ms = ms;
+}
 
 // Normalize DOS/UNIX line edings in a keyboard script file
 static char *normalize_script(const char *raw_data, int raw_len, int *out_len)
@@ -197,11 +214,19 @@ void keyb_load_script(const char *filename, int delay_ms)
 
     script_data = normalized;
     script_index = 0;
+
+    if(delay_ms < 0)
+        delay_ms = 0;
+
+    if(delay_ms > 1000000)
+        delay_ms = 1000000;
+
     script_delay_ms = delay_ms;
+
     clock_gettime(CLOCK_MONOTONIC, &last_inject_time);
 
-    debug(debug_int, "loaded script '%s': %d bytes normalized (delay %d ms)\n",
-          filename, script_len, script_delay_ms);
+    debug(debug_int, "loaded script '%s': %d bytes (delay %d ms, initial %d ms)\n",
+          filename, script_len, script_delay_ms, script_initial_delay_ms);
 }
 
 static int get_special_code(int key)
@@ -345,7 +370,10 @@ static void inject_script_char(void)
     long elapsed_ms = (now.tv_sec  - last_inject_time.tv_sec) * 1000 +
                       (now.tv_nsec - last_inject_time.tv_nsec) / 1000000;
 
-    if(elapsed_ms < script_delay_ms)
+    long needed_ms = (script_index == 0 && script_initial_delay_ms > 0)
+                      ? script_initial_delay_ms : script_delay_ms;
+
+    if(elapsed_ms < needed_ms)
         return;
 
     char ch = script_data[script_index++];

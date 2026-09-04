@@ -242,6 +242,8 @@ static void dump_ram_on_exit(void)
 int main(int argc, char **argv)
 {
     int i;
+    int arg_script_delay = -1;
+    int arg_script_initial_delay = -1;
     prog_name = argv[0];
 
     // Process command line options
@@ -265,6 +267,8 @@ int main(int argc, char **argv)
         case 'P':
         case 'X':
         case 's':
+        case 'i':
+        case 'd':
             if(argv[i][2])
                 opt = argv[i] + 2;
             else
@@ -308,10 +312,36 @@ int main(int argc, char **argv)
             break;
         case 's':
             {
-            int delay = 100;  // default 100ms
-            keyb_load_script(opt, delay);
+                if (arg_script_initial_delay >= 0)
+                    keyb_set_script_initial_delay(arg_script_initial_delay);
+
+                int delay = (arg_script_delay >= 0) ? arg_script_delay : 1;
+
+                keyb_load_script(opt, delay);
             }
-            break;
+        break;
+        case 'i':
+            {
+                char *ep;
+                long ms = strtol(opt, &ep, 10);
+
+                if (*ep != 0 || ms < 0 || ms > 1000000)
+                    print_usage_error("initial delay '%s' invalid.", opt);
+
+                arg_script_initial_delay = (int)ms;
+            }
+        break;
+        case 'd':
+            {
+                char *ep;
+                long ms = strtol(opt, &ep, 10);
+
+                if (*ep != 0 || ms < 0 || ms > 1000000)
+                    print_usage_error("keystroke delay '%s' invalid.", opt);
+
+                arg_script_delay = (int)ms;
+            }
+        break;
         case 'm':
         {
             long v = strtol(opt, &ep, 0);

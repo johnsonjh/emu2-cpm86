@@ -1,6 +1,8 @@
 #pragma once
 #include <stdint.h>
 
+void keyb_set_script_initial_delay(int ms);
+void keyb_set_script_delay(int ms);
 void keyb_load_script(const char *filename, int delay_ms);
 void update_keyb(void);
 int getch(int detect_brk);
