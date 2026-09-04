@@ -264,6 +264,7 @@ int main(int argc, char **argv)
         case 'm':
         case 'P':
         case 'X':
+        case 's':
             if(argv[i][2])
                 opt = argv[i] + 2;
             else
@@ -303,6 +304,12 @@ int main(int argc, char **argv)
                 bin_load_ip = strtol(ep + 1, &ep, 0);
                 if(*ep != 0 || bin_load_ip < 0 || bin_load_ip > 0xFFFF)
                     print_usage_error("binary run address '%s' invalid.", opt);
+            }
+            break;
+        case 's':
+            {
+            int delay = 100;  // default 100ms
+            keyb_load_script(opt, delay);
             }
             break;
         case 'm':

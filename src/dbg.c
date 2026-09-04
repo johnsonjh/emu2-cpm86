@@ -110,8 +110,9 @@ NORETURN void print_usage(void)
            "                (only for binary loaded data).\n"
            "  -m <kb>       CP/M-86 TPA size in KB; same as EMU2_CPM_TPA env var.\n"
            "                Default: ~640K (standard DOS arena).\n"
+           "  -s <file>     Specify a keyboard script file (injects keystrokes).\n"
            "  -P <byte>     Fill free CP/M-86 memory with <byte> before loading\n"
-           "                (same as EMU2_CPM_POISON=<byte>); implies -D.\n"
+           "                (same as EMU2_CPM_POISON=<byte>.\n"
            "  -D            Fill free CP/M-86 memory with 0xFF before loading\n"
            "                (same as EMU2_CPM_DIRTY).\n"
            "\n"
@@ -146,28 +147,28 @@ NORETURN void print_usage(void)
            "  %-18s  Fill free memory with <byte> before loading (for debugging).\n"
            "  %-18s  Fill free memory with 0xFF before loading (for debugging).\n",
            prog_name,
-	   ENV_DBG_NAME,
-	   ENV_DBG_OPT,
-	   ENV_PROGNAME,
-	   ENV_DEF_DRIVE,
-	   ENV_CWD,
+           ENV_DBG_NAME,
+           ENV_DBG_OPT,
+           ENV_PROGNAME,
+           ENV_DEF_DRIVE,
+           ENV_CWD,
            ENV_DRIVE "n",
-	   ENV_CODEPAGE,
-	   ENV_LOWMEM,
-	   ENV_APPEND,
-	   ENV_DOSVER,
-	   ENV_ROWS,
-	   ENV_CPM_APPEND,
-	   "EMU2_CPM_DISK",
-	   "EMU2_CPM_FREE",
-	   "EMU2_CPM_PLUS",
-	   ENV_CPMVER,
-	   ENV_LRBC_NOTRUNC,
-	   ENV_CPM_ISXLRBC,
-	   "EMU2_CPM_VT52",
-	   "EMU2_CPM_TPA",
-	   "EMU2_CPM_POISON",
-	   "EMU2_CPM_DIRTY");
+           ENV_CODEPAGE,
+           ENV_LOWMEM,
+           ENV_APPEND,
+           ENV_DOSVER,
+           ENV_ROWS,
+           ENV_CPM_APPEND,
+           "EMU2_CPM_DISK",
+           "EMU2_CPM_FREE",
+           "EMU2_CPM_PLUS",
+           ENV_CPMVER,
+           ENV_LRBC_NOTRUNC,
+           ENV_CPM_ISXLRBC,
+           "EMU2_CPM_VT52",
+           "EMU2_CPM_TPA",
+           "EMU2_CPM_POISON",
+           "EMU2_CPM_DIRTY");
     exit(EXIT_SUCCESS);
 }
 
