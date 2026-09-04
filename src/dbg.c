@@ -90,11 +90,12 @@ void print_version(void)
 {
     printf("emu2: x86, DOS, and CP/M-86 emulator, v" EMU2_VERSION
 #if defined (__DATE__) && defined (__TIME__)
-           " (built %s %s)\n", sqz_str(__DATE__), sqz_str(__TIME__)
+           " (built %s %s)", sqz_str(__DATE__), sqz_str(__TIME__)
 #elif defined (__DATE__)
-           " (built %s)\n", sqz_str(__DATE__)
+           " (built %s)", sqz_str(__DATE__)
 #endif
           );
+    printf("\n");
 }
 
 NORETURN void print_usage(void)
@@ -115,9 +116,9 @@ NORETURN void print_usage(void)
            "                Default is 1ms; use '0' to send as fast as possible.\n"
            "  -i <ms>       Delay <ms> before sending keyboard script characters.\n"
            "  -l <ms>       Delay keyboard script by <ms> after each newline.\n"
-           "  -P <byte>     Fill free CP/M-86 memory with <byte> before loading\n"
+           "  -P <byte>     Fill CP/M-86 memory with <byte> before loading\n"
            "                (same as EMU2_CPM_POISON=<byte>.\n"
-           "  -D            Fill free CP/M-86 memory with 0xFF before loading\n"
+           "  -D            Fill CP/M-86 memory with 0xFF before loading\n"
            "                (same as EMU2_CPM_DIRTY).\n"
            "\n"
            "Environment variables:\n"
@@ -148,8 +149,8 @@ NORETURN void print_usage(void)
            "\t\t      instead of DOS Plus (used bytes); default off (DOS Plus).\n"
            "  %-18s  CP/M-86 console emulation (VT52/colour); set 0 to disable.\n"
            "  %-18s  CP/M-86 TPA size in KB; same as -m.\n"
-           "  %-18s  Fill free memory with <byte> before loading (for debugging).\n"
-           "  %-18s  Fill free memory with 0xFF before loading (for debugging).\n",
+           "  %-18s  Fill memory with <byte> before loading (for debugging).\n"
+           "  %-18s  Fill memory with 0xFF before loading (for debugging).\n",
            prog_name,
            ENV_DBG_NAME,
            ENV_DBG_OPT,
