@@ -518,10 +518,6 @@ static int get_esc_sequence(void)
 
 static int read_key(void)
 {
-    // Return -1 if TTY is not available (headless mode)
-    if(tty_fd < 0)
-        return -1;
-
     char ch = '\xFF';
     // Reads first key code
     if(read(tty_fd, &ch, 1) == 0)
@@ -572,10 +568,6 @@ static void set_raw_term(int raw)
     if(raw == term_raw)
         return;
 
-    // Do nothing if tty_fd is not valid (headless mode)
-    if(tty_fd < 0)
-        return;
-
     term_raw = raw;
     if(term_raw)
     {
@@ -602,8 +594,7 @@ static void set_raw_term(int raw)
 static void exit_keyboard(void)
 {
     set_raw_term(0);
-    if(tty_fd >= 0)
-        close(tty_fd);
+    close(tty_fd);
 }
 
 static void init_keyboard(void)
@@ -612,12 +603,8 @@ static void init_keyboard(void)
     {
         tty_fd = open("/dev/tty", O_NOCTTY | O_RDONLY);
         if(tty_fd < 0)
-        {
-            // TTY not available - running headless. This is OK if using
-            // keyboard script injection. Just log and continue.
-            debug(debug_int, "TTY not available - running in headless mode\n");
-            return;
-        }
+            print_error("error in %s[%d] at open TTY, %s\n",
+                        __func__, __LINE__, strerror(errno));
         atexit(exit_keyboard);
     }
     set_raw_term(1);
@@ -698,11 +685,11 @@ int getch(int detect_brk)
 
 void update_keyb(void)
 {
-    // Inject keyboard script keys - works even without tty_fd
+    // Inject keyboard script keys
     if(script_data)
         inject_script_char();
 
-    // See if any key is available from terminal:
+    // See if any key is available:
     if(tty_fd >= 0 && term_raw && !waiting_key && queued_key == -1)
         kbhit();
 }
