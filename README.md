@@ -5,9 +5,9 @@ UNIX‑like systems.
 
 ## Overview
 
-This is an 8088/8086/80186/80286 (sans protected mode) CPU emulator and
-a reimplementation of the Microsoft/IBM MS‑DOS/PC‑DOS and Digital Research
-CP/M‑86 operating systems for the UNIX console.
+This is an 8088/8086/80186/80286 (*sans protected mode*) CPU emulator and
+a reimplementation of the Microsoft/IBM **MS‑DOS**/**PC‑DOS** and
+Digital Research **CP/M‑86** operating systems for the UNIX console.
 
 Most DOS and CP/M‑86 system calls and text‑mode video I/O is supported.
 
@@ -40,16 +40,16 @@ Options (should be placed *before* the DOS or CP/M‑86 program name):
 
 | Option | Description |
 |-------:|:------------|
-| `-h` | Shows help text. |
-| `-b`&nbsp;`addr` | Load header‑less binary at given address (to load ROMs or test data). |
-| `-r`&nbsp;`<seg>:<ip>` | Specify a run address to start execution (only for binary loaded data). |
-| `-m`&nbsp;`<kb>` | CP/M‑86 TPA size in KB; same as `EMU2_CPM_TPA` env var (~640K default). |
-| `-s`&nbsp;`<file>` | Specify a keyboard script file (to automatically inject keystrokes). |
-| `-d`&nbsp;`<ms>` | Delay `<ms>` between each keyboard script character. Default is 1ms; use '0' to send as fast as possible. |
-| `-i`&nbsp;`<ms>` | Delay `<ms>` before sending any keyboard script characters. |
-| `-i`&nbsp;`<ms>` | Delay keyboard script by `<ms>` after each newline. |
-| `-P`&nbsp;`<byte>` | Fill free CP/M‑86 memory with `<byte>` before loading (same as `EMU2_CPM_POISON=<byte>`). |
-| `-D` | Fill free CP/M‑86 memory with `0xFF` before loading (same as `EMU2_CPM_DIRTY`). |
+| `‑h` | Shows help text. |
+| `‑b`&nbsp;`addr` | Load header‑less binary at given address (to load ROMs or test data). |
+| `‑r`&nbsp;`<seg>:<ip>` | Specify a run address to start execution (only for binary loaded data). |
+| `‑m`&nbsp;`<kb>` | CP/M‑86 TPA size in KB; same as `EMU2_CPM_TPA` env var (~640K default). |
+| `‑s`&nbsp;`<file>` | Specify a keyboard script file (to automatically inject keystrokes). |
+| `‑d`&nbsp;`<ms>` | Delay `<ms>` between each keyboard script character. Default is 1ms; use '0' to send as fast as possible. |
+| `‑i`&nbsp;`<ms>` | Delay `<ms>` before sending any keyboard script characters. |
+| `‑i`&nbsp;`<ms>` | Delay keyboard script by `<ms>` after each newline. |
+| `‑P`&nbsp;`<byte>` | Fill free CP/M‑86 memory with `<byte>` before loading (same as `EMU2_CPM_POISON=<byte>`). |
+| `‑D` | Fill free CP/M‑86 memory with `0xFF` before loading (same as `EMU2_CPM_DIRTY`). |
 
 ## Debugging
 
@@ -113,8 +113,8 @@ env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
 ## History
 
 * `emu2‑cpm86` is derived from the excellent [`emu2`](https://github.com/dmsc/emu2)
-  emulator by [`dmsc`](https://github.com/dmsc/emu2).
+  emulator by [`dmsc`](https://github.com/dmsc).
 
 ## License
 
-* `emu2‑cpm86` is made available under the terms of the [GPL-v2.0 license](LICENSE).
+* `emu2‑cpm86` is made available under the terms of the [GPL‑v2.0 license](LICENSE).
