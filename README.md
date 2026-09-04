@@ -47,9 +47,10 @@ Options (should be placed *before* the DOS or CP/M-86 program name):
 | `-b addr` | Load header-less binary at given address (to load ROMs or test data). |
 | `-r <seg>:<ip>` | Specify a run address to start execution (only for binary loaded data). |
 | `-m <kb>` | CP/M-86 TPA size in KB; same as `EMU2_CPM_TPA` env var (~640K default). |
-| `-s <file>` | Specify a keystroke script file. |
+| `-s <file>` | Specify a keyboard script file (to automatically inject keystrokes). |
 | `-d <ms>` | Delay `<ms>` between each keyboard script character. Default is 1ms; use '0' to send as fast as possible. |
 | `-i <ms>` | Delay `<ms>` before sending any keyboard script characters. |
+| `-i <ms>` | Delay keyboard script by `<ms>` after each newline. |
 | `-P <byte>` | Fill free CP/M-86 memory with `<byte>` before loading (same as `EMU2_CPM_POISON=<byte>`). |
 | `-D` | Fill free CP/M-86 memory with `0xFF` before loading (same as `EMU2_CPM_DIRTY`). |
 

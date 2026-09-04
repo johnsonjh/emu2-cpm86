@@ -244,6 +244,7 @@ int main(int argc, char **argv)
     int i;
     int arg_script_delay = -1;
     int arg_script_initial_delay = -1;
+    int arg_script_newline_delay = -1;
     prog_name = argv[0];
 
     // Process command line options
@@ -269,6 +270,7 @@ int main(int argc, char **argv)
         case 's':
         case 'i':
         case 'd':
+        case 'l':
             if(argv[i][2])
                 opt = argv[i] + 2;
             else
@@ -317,6 +319,9 @@ int main(int argc, char **argv)
 
                 int delay = (arg_script_delay >= 0) ? arg_script_delay : 1;
 
+                if (arg_script_newline_delay >= 0)
+                    keyb_set_script_newline_delay(arg_script_newline_delay);
+
                 keyb_load_script(opt, delay);
             }
         break;
@@ -340,6 +345,21 @@ int main(int argc, char **argv)
                     print_usage_error("keystroke delay '%s' invalid.", opt);
 
                 arg_script_delay = (int)ms;
+            }
+        break;
+        case 'l':
+            {
+                char *ep;
+                long ms = strtol(opt, &ep, 10);
+
+                if (*ep != 0 || ms < 0 || ms > 1000000)
+                    print_usage_error("newline delay '%s' invalid.", opt);
+
+                if(arg_script_delay >= 0 && ms < arg_script_delay)
+                    print_usage_error("newline delay '%ld' must be >= keystroke delay '%d'.",
+                                      ms, arg_script_delay);
+
+                arg_script_newline_delay = (int)ms;
             }
         break;
         case 'm':
