@@ -1521,26 +1521,36 @@ void intr21(void)
     case 0x12: // FIND NEXT FILE USING FCB
         dos_find_next_fcb();
         break;
-    case 0x13: // DELETE FILE USING FCB
+    case 0x13: // DELETE FILE USING FCB (wildcards supported)
     {
         dos_show_fcb();
-        /* TODO: Limited support. No wild cards */
         int fcb_addr = get_fcb();
-        char *fname = dos_unix_path_fcb(fcb_addr, 0, append_path());
-        if(!fname)
+        struct dos_file_list *list = dos_find_first_file_fcb(fcb_addr, 0); // label=0: no disk-label entry
+        if(!list || !list->unixname)
         {
             debug(debug_dos, "\t(file not found)\n");
+            if(list)
+                dos_free_file_list(list);
             dos_error = 2;
             cpuSetAL(0xFF);
             break;
         }
-        debug(debug_dos, "\tdelete fcb '%s'\n", fname);
-        int e = unlink(fname);
-        free(fname);
-        if(e)
+        int deleted = 0;
+        for(struct dos_file_list *e = list; e && e->unixname; e++)
         {
-            debug(debug_dos, "\tcould not delete file (%d).\n", errno);
-            dos_error = 5;
+            struct stat st;
+            if(stat(e->unixname, &st) == 0 && S_ISDIR(st.st_mode))
+                continue; // skip directories — CP/M fn 19 only deletes files
+            debug(debug_dos, "\tdelete fcb '%s'\n", e->unixname);
+            if(unlink(e->unixname) == 0)
+                deleted++;
+            else
+                debug(debug_dos, "\tcould not delete '%s' (%d).\n", e->unixname, errno);
+        }
+        dos_free_file_list(list);
+        if(!deleted)
+        {
+            dos_error = 2;
             cpuSetAL(0xFF);
         }
         else
