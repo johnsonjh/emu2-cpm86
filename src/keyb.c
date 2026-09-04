@@ -43,6 +43,7 @@ static int script_index = 0;
 static struct timespec last_inject_time = {0, 0};
 static int script_delay_ms = 1;
 static int script_initial_delay_ms = 1;
+static int script_newline_delay_ms = 1;
 
 // Copy mod-state to BIOS memory area
 static void update_bios_state(void)
@@ -125,6 +126,14 @@ void keyb_set_script_delay(int ms)
     if(ms < 0) ms = 0;
     if(ms > 1000000) ms = 1000000;
     script_delay_ms = ms;
+}
+
+// set newline keyboard script delay
+void keyb_set_script_newline_delay(int ms)
+{
+    if(ms < 0) ms = 0;
+    if(ms > 1000000) ms = 1000000;
+    script_newline_delay_ms = ms;
 }
 
 // Normalize DOS/UNIX line edings in a keyboard script file
@@ -358,7 +367,7 @@ static int add_scancode(int i)
         return i;
 }
 
-// Inject scripted keys with delay
+// Inject scripted keys with configured delays
 static void inject_script_char(void)
 {
     if(!script_data || script_index >= script_len)
@@ -377,7 +386,6 @@ static void inject_script_char(void)
         return;
 
     char ch = script_data[script_index++];
-
     int code = add_scancode((unsigned char)ch);
 
     if(queued_key == -1)
@@ -388,6 +396,20 @@ static void inject_script_char(void)
     }
 
     last_inject_time = now;
+
+    if((ch == '\r' || ch == '\n') && script_newline_delay_ms > 0)
+    {
+        last_inject_time = now;
+        last_inject_time.tv_nsec += (script_newline_delay_ms % 1000) * 1000000;
+
+        if(last_inject_time.tv_nsec >= 1000000000)
+        {
+            last_inject_time.tv_sec++;
+            last_inject_time.tv_nsec -= 1000000000;
+        }
+
+        last_inject_time.tv_sec += script_newline_delay_ms / 1000;
+    }
 }
 
 // Convert key-code with ALT to scan-code

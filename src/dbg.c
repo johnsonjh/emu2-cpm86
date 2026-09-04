@@ -114,6 +114,7 @@ NORETURN void print_usage(void)
            "  -d <ms>       Delay <ms> between each keyboard script character.\n"
            "                Default is 1ms; use '0' to send as fast as possible.\n"
            "  -i <ms>       Delay <ms> before sending keyboard script characters.\n"
+           "  -l <ms>       Delay keyboard script by <ms> after each newline.\n"
            "  -P <byte>     Fill free CP/M-86 memory with <byte> before loading\n"
            "                (same as EMU2_CPM_POISON=<byte>.\n"
            "  -D            Fill free CP/M-86 memory with 0xFF before loading\n"
