@@ -230,10 +230,12 @@ static void init_video(void)
     debug(debug_video, "starting video emulation.\n");
     int tty_fd = open("/dev/tty", O_NOCTTY | O_WRONLY);
     if(tty_fd < 0)
-        print_error("error at open TTY, %s\n", strerror(errno));
+        print_error("error in %s[%d] at open TTY, %s\n",
+                    __func__, __LINE__, strerror(errno));
     tty_file = fdopen(tty_fd, "w");
     if(!tty_file)
-        print_error("error at open TTY, %s\n", strerror(errno));
+        print_error("error in %s[%d] at open TTY, %s\n",
+                    __func__, __LINE__, strerror(errno));
     fputs("\x1b[?7l", tty_file); // Disable automatic margin
     atexit(exit_video);
     video_initialized = 1;
