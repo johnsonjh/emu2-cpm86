@@ -11,6 +11,9 @@ Digital Research **CP/M‑86** operating systems for the UNIX console.
 
 Most DOS and CP/M‑86 system calls and text‑mode video I/O is supported.
 
+It is known to work and actively tested on IBM AIX, FreeBSD, NetBSD, OpenBSD,
+and GNU/Linux systems.
+
 ## Availability
 
 * [https://gitlab.com/johnsonjh/emu2-cpm86](https://gitlab.com/johnsonjh/emu2-cpm86)
