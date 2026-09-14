@@ -60,7 +60,7 @@ static void op_goto(unsigned x, unsigned y)
         video_set_cursor(x, y);
     else
     {
-        char b[24];
+        char b[32];
         snprintf(b, sizeof b, "\x1b[%u;%uH", y + 1, x + 1);
         emit(b);
     }
