@@ -11,8 +11,9 @@ Digital Research **CP/M‑86** operating systems for the UNIX console.
 
 Most DOS and CP/M‑86 system calls and text‑mode video I/O is supported.
 
-It is actively developed on IBM AIX, FreeBSD, NetBSD, OpenBSD, Haiku,
-and GNU/Linux systems.
+It is regularly tested and actively developed for IBM AIX, FreeBSD,
+NetBSD, OpenBSD, Haiku, Solaris, illumos, and GNU/Linux systems.  It
+should work on any system conforming to POSIX.1‑2008 with a C99 compiler.
 
 The goal is to create *the absolute best* CP/M‑86 emulator available, with
 *equal or better* support for DOS than [emu2](https://github.com/dmsc/emu2).
@@ -105,6 +106,9 @@ env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
 | `EMU2_DOSVER` | Changes the reported DOS version, allowing programs that checks this version to run.<br><br>You can specify a major version or a major dot minor, for example `3.20`, `2.11` or `5`. |
 | `EMU2_ROWS` | Sets up the VGA text mode to the given number of rows, from `12` to `50` at the program start.<br><br>Some full‑screen DOS programs will retrieve this info and adjust the screen properly, some other will ignore this and setup the text mode again. |
 | `EMU2_CPU_SPEED` | Limits the emulated CPU speed to at most the given number of instructions per millisecond. For reference, a value of 1000 (1 MIPS) approximates a fast 8086 or slow 80286.<br><br>By default (or when set to `0`), there is no limit; a modern PC can typically reach 200,000 or more instructions per millisecond.<br><br>Note that this does not accurately emulate a specific CPU speed, since real 8086/80286 processors take a varying number of cycles per instruction. |
+| `EMU2_KBHIT_CALLS` | Number of `kbhit()` polling calls allowed in time limit for tight-loop detection. If more than `EMU2_KBHIT_CALLS` execute in less than `EMU2_KBHIT_TIME` microseconds, the CPU sleeps for `EMU2_KBHIT_SLEEP` microseconds.<br><br>Default is `1000`. Set to `0` to *completely disable* the keyboard throttling (otherwise idle CP/M and DOS programs may consume 100% host CPU, but *may* be more responsive). |
+| `EMU2_KBHIT_TIME` | Time threshold in microseconds for the `kbhit()` tight‑loop detection. Default is `10000` (10ms). |
+| `EMU2_KBHIT_SLEEP` | Sleep duration in microseconds when the tight‑loop detection gets triggered. Default is `10000` (10ms). |
 | `EMU2_CPM_DISK` | Block size of the fabricated CP/M‑86 "disk" that presents each drive's host directory: `auto` (default), `1k`, `2k`, `4k`, `8k` or `16k`.<br><br>The block size is the allocation granularity.  The smallest reportable file size (`1k` keeps small files exact; bigger blocks are needed for bigger disks).<br><br>`auto` scans the directory and picks the smallest block size that holds it.<br><br>The disk itself is sized to the directory's contents (see `EMU2_CPM_FREE`) and then capped at the guest‑tool ceiling: about 8 MB for a standard CP/M 2.2 program (its 16‑bit record count and allocation bitmap top out there), or 512 MB with `EMU2_CPM_PLUS`. Files too big to fit aren't listed, as on a real CP/M disk.<br><br>Per‑drive override: `EMU2_CPM_DISK_C`, `EMU2_CPM_DISK_D`, ... take precedence over the global setting. Only affects native CP/M‑86 programs. |
 | `EMU2_CPM_FREE` | Target percentage of virtual free space the `auto` disk sizing aims to leave (default `25`, clamped to 0..90). |
 | `EMU2_CPM_PLUS` | When set, use CP/M 3 (Personal CP/M‑86 / CP/M‑86 Plus) limits: up to 2048 extents per file (32 MB files) and 512 MB disks, instead of the standard 512 extents (8 MB files, ~8 MB disks).<br><br>Needs CP/M‑3‑aware tools to use the larger sizes. |

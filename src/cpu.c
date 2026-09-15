@@ -1934,7 +1934,10 @@ static void exit_early_rep(uint16_t count)
         for(; count > 0; count--)                                  \
         {                                                          \
             if(wregs[CX] != count && num_ins_exec++ >= ins_per_ms) \
-                return exit_early_rep(count);                      \
+            {                                                      \
+                exit_early_rep(count);                             \
+                return;                                            \
+            }                                                      \
             ins();                                                 \
         }                                                          \
     }                                                              \
@@ -1950,7 +1953,10 @@ static void exit_early_rep(uint16_t count)
         for(ZF = flagval; (ZF == flagval) && (count > 0); count--) \
         {                                                          \
             if(wregs[CX] != count && num_ins_exec++ >= ins_per_ms) \
-                return exit_early_rep(count);                      \
+            {                                                      \
+                exit_early_rep(count);                             \
+                return;                                            \
+            }                                                      \
             ins();                                                 \
         }                                                          \
     }                                                              \
