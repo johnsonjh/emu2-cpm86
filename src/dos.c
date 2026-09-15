@@ -2164,6 +2164,12 @@ void intr21(void)
             break;
         case 0x0E: // GET LOGICAL DRIVE MAP
             cpuSetAX(0x4400);
+            break;
+        default:
+            cpuSetFlag(cpuFlag_CF);
+            dos_error = 1;
+            cpuSetAX(dos_error);
+            break;
         }
         break;
     }
