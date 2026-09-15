@@ -181,7 +181,14 @@ void keyb_load_script(const char *filename, int delay_ms)
     if(!f)
     {
         print_error("can't open script '%s': %s\n", filename, strerror(errno));
+#if defined(__SUNPRO_C) || defined(__SUNPRO_CC)
+# pragma error_messages(off, E_STATEMENT_NOT_REACHED)
+#endif
+	/*NOTREACHED*/ /* unreachable */ /*LINTED E_STMT_NOT_REACHED*/
         return;
+#if defined(__SUNPRO_C) || defined(__SUNPRO_CC)
+# pragma error_messages(on, E_STATEMENT_NOT_REACHED)
+#endif
     }
 
     fseek(f, 0, SEEK_END);
@@ -191,24 +198,45 @@ void keyb_load_script(const char *filename, int delay_ms)
     if(size <= 0 || size > 1000000)
     {
         print_error("script file '%s' is invalid\n", filename);
+#if defined(__SUNPRO_C) || defined(__SUNPRO_CC)
+# pragma error_messages(off, E_STATEMENT_NOT_REACHED)
+#endif
+	/*NOTREACHED*/ /* unreachable */ /*LINTED E_STMT_NOT_REACHED*/
         fclose(f);
         return;
+#if defined(__SUNPRO_C) || defined(__SUNPRO_CC)
+# pragma error_messages(on, E_STATEMENT_NOT_REACHED)
+#endif
     }
 
     char *raw = malloc(size);
     if(!raw)
     {
         print_error("can't allocate memory for script\n");
+#if defined(__SUNPRO_C) || defined(__SUNPRO_CC)
+# pragma error_messages(off, E_STATEMENT_NOT_REACHED)
+#endif
+	/*NOTREACHED*/ /* unreachable */ /*LINTED E_STMT_NOT_REACHED*/
         fclose(f);
         return;
+#if defined(__SUNPRO_C) || defined(__SUNPRO_CC)
+# pragma error_messages(on, E_STATEMENT_NOT_REACHED)
+#endif
     }
 
     if(fread(raw, 1, size, f) != size)
     {
         print_error("script read error\n");
+#if defined(__SUNPRO_C) || defined(__SUNPRO_CC)
+# pragma error_messages(off, E_STATEMENT_NOT_REACHED)
+#endif
+	/*NOTREACHED*/ /* unreachable */ /*LINTED E_STMT_NOT_REACHED*/
         free(raw);
         fclose(f);
         return;
+#if defined(__SUNPRO_C) || defined(__SUNPRO_CC)
+# pragma error_messages(on, E_STATEMENT_NOT_REACHED)
+#endif
     }
     fclose(f);
 
@@ -219,7 +247,14 @@ void keyb_load_script(const char *filename, int delay_ms)
     if(!normalized)
     {
         print_error("error processing script\n");
+#if defined(__SUNPRO_C) || defined(__SUNPRO_CC)
+# pragma error_messages(off, E_STATEMENT_NOT_REACHED)
+#endif
+	/*NOTREACHED*/ /* unreachable */ /*LINTED E_STMT_NOT_REACHED*/
         return;
+#if defined(__SUNPRO_C) || defined(__SUNPRO_CC)
+# pragma error_messages(on, E_STATEMENT_NOT_REACHED)
+#endif
     }
 
     script_data = normalized;
