@@ -150,7 +150,9 @@ NORETURN void print_usage(void)
            "  %-18s  CP/M-86 console emulation (VT52/colour); set 0 to disable.\n"
            "  %-18s  CP/M-86 TPA size in KB; same as -m.\n"
            "  %-18s  Fill memory with <byte> before loading (for debugging).\n"
-           "  %-18s  Fill memory with 0xFF before loading (for debugging).\n",
+           "  %-18s  Fill memory with 0xFF before loading (for debugging).\n"
+           "  %-18s  # of kbhit calls before throttle (default 1000, 0 is off).\n"
+           "  %-18s  Time (in us) for kbhit throttle detection (default 10000).\n",
            prog_name,
            ENV_DBG_NAME,
            ENV_DBG_OPT,
@@ -173,7 +175,9 @@ NORETURN void print_usage(void)
            "EMU2_CPM_VT52",
            "EMU2_CPM_TPA",
            "EMU2_CPM_POISON",
-           "EMU2_CPM_DIRTY");
+           "EMU2_CPM_DIRTY",
+           EMU2_KBHIT_CALLS,
+           EMU2_KBHIT_TIME);
     exit(EXIT_SUCCESS);
 }
 
