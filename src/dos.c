@@ -1703,8 +1703,8 @@ void intr21(void)
             debug(debug_dos, "\tinvalid new PSP segment %04x.\n", cpuGetDX());
             break;
         }
-        // Copy PSP to the new segment, 0x80 is what DOS does - this excludes command line
-        memcpy(new_psp, orig_psp, 0x80);
+        // Copy entire PSP (256 bytes) to new segment, including command tail at 0x80..0xFF
+        memcpy(new_psp, orig_psp, 0x100);
         break;
     }
     case 0x27: // BLOCK READ FROM FCB
@@ -2415,8 +2415,8 @@ void intr21(void)
             debug(debug_dos, "\tinvalid new PSP segment %04x.\n", cpuGetDX());
             break;
         }
-        // Copy PSP to the new segment, 0x80 is what DOS does - this excludes command line
-        memcpy(new_psp, orig_psp, 0x80);
+        // Copy entire PSP (256 bytes) to new segment, including command tail at 0x80..0xFF
+        memcpy(new_psp, orig_psp, 0x100);
         // Set parent PSP to the current one
         new_psp[22] = get_current_PSP() & 0xFF;
         new_psp[23] = get_current_PSP() >> 8;
