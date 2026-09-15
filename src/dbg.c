@@ -152,7 +152,8 @@ NORETURN void print_usage(void)
            "  %-18s  Fill memory with <byte> before loading (for debugging).\n"
            "  %-18s  Fill memory with 0xFF before loading (for debugging).\n"
            "  %-18s  # of kbhit calls before throttle (default 1000, 0 is off).\n"
-           "  %-18s  Time (in us) for kbhit throttle detection (default 10000).\n",
+           "  %-18s  Time (in us) for kbhit throttle detection (default 10000).\n"
+           "  %-18s  Sleep time (in us) of kbhit throttle delay (default 10000).\n",
            prog_name,
            ENV_DBG_NAME,
            ENV_DBG_OPT,
@@ -177,7 +178,8 @@ NORETURN void print_usage(void)
            "EMU2_CPM_POISON",
            "EMU2_CPM_DIRTY",
            EMU2_KBHIT_CALLS,
-           EMU2_KBHIT_TIME);
+           EMU2_KBHIT_TIME,
+           EMU2_KBHIT_SLEEP);
     exit(EXIT_SUCCESS);
 }
 

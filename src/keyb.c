@@ -640,13 +640,16 @@ int kbhit(void)
             static double last_time = 0;
             static int kbhit_calls_threshold = -1;
             static int kbhit_time_threshold = -1;
+            static int kbhit_sleep_time = -1;
 
             if (kbhit_calls_threshold == -1)
             {
                 const char *env_calls = getenv(EMU2_KBHIT_CALLS);
                 const char *env_time = getenv(EMU2_KBHIT_TIME);
+                const char *env_sleep = getenv(EMU2_KBHIT_SLEEP);
                 kbhit_calls_threshold = env_calls ? atoi(env_calls) : 1000;
                 kbhit_time_threshold = env_time ? atoi(env_time) : 10000;
+                kbhit_sleep_time = env_sleep ? atoi(env_sleep) : 10000;
             }
 
             throttle_calls++;
@@ -660,7 +663,7 @@ int kbhit(void)
                     if(last_time != 0 && (t1 - last_time) < kbhit_time_threshold)
                     {
                         debug(debug_int, "keyboard sleep.\n");
-                        cpu_usleep(10000);
+                        cpu_usleep(kbhit_sleep_time);
                         if(gettimeofday(&tv, NULL) != -1)
                             t1 = tv.tv_usec + tv.tv_sec * 1000000.0;
                     }
