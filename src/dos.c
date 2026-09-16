@@ -1368,6 +1368,21 @@ void intr2f(void)
     }
 }
 
+// Fills 'buf[0..n-1]' with random lowercase-alphanumeric characters for a
+// unique temp name.
+static void tmp_name_suffix(char *buf, int n)
+{
+    static const char alphabet[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+    static int seeded;
+    if(!seeded)
+    {
+        srand((unsigned)time(0) ^ (unsigned)getpid());
+        seeded = 1;
+    }
+    for(int i = 0; i < n; i++)
+        buf[i] = alphabet[rand() % (sizeof(alphabet) - 1)];
+}
+
 // DOS int 21
 void intr21(void)
 {
@@ -2494,95 +2509,99 @@ void intr21(void)
         cpuSetAX(dos_error);
         break;
 case 0x5A: /* CREATE TEMPORARY FILE */
-{
-    int addr = cpuGetAddrDS(cpuGetDX());
-    unsigned base_len = strlen(getstr(addr, 63));
-    static const char tmpl_name[] = "TMXXXXXX"; /* 8.3-legal */
-
-    int drive = dos_get_default_drive();
-    if(memory[addr + 1] == ':')
     {
-        uint8_t c = memory[addr];
-        drive = (c >= 'a') ? c - 'a' : c - 'A';
-    }
+        int addr = cpuGetAddrDS(cpuGetDX());
+        unsigned base_len = strlen(getstr(addr, 63));
 
-    putmem(addr + base_len,
-           (const uint8_t *)tmpl_name,
-           sizeof(tmpl_name));
+        int drive = dos_get_default_drive();
+        if(memory[addr + 1] == ':')
+        {
+            uint8_t c = memory[addr];
+            drive = (c >= 'a') ? c - 'a' : c - 'A';
+        }
 
-    char *fname = dos_unix_path(addr, 1, append_path());
+        char *dir = dos_unix_path(addr, 1, append_path());
 
-    debug(debug_dos, "\tcreate tmpfile '%s' ", fname ? fname : "?");
+        debug(debug_dos, "\tcreate tmpfile at '%s' ", dir ? dir : "?");
 
-    int h = get_new_handle();
-    int fd = (fname && h >= 0) ? mkstemp(fname) : -1;
+        size_t dlen = dir ? strlen(dir) : 0;
+        while(dlen && dir[dlen - 1] == '/')
+            dlen--;
 
-    if(fd < 0)
-    {
-        memory[addr + base_len] = 0; /* restore original path */
+        int h = get_new_handle();
+        char *fname = (dir && h >= 0) ? malloc(dlen + sizeof("/tmpXXXXX.XXX")) : 0;
+        int fd = -1;
+        if(fname)
+        {
+            // Retry with a fresh random name on collision.
+            for(int tries = 0; tries < 100; tries++)
+            {
+                char suf[8];
+                tmp_name_suffix(suf, 8);
+                sprintf(fname, "%.*s/tmp%c%c%c%c%c.%c%c%c", (int)dlen, dir,
+                        suf[0], suf[1], suf[2], suf[3], suf[4],
+                        suf[5], suf[6], suf[7]);
+                fd = open(fname, O_CREAT | O_EXCL | O_RDWR, 0666);
+                if(fd >= 0 || errno != EEXIST)
+                    break;
+            }
+        }
+        free(dir);
 
-        debug(debug_dos, "%s.\n", fname ? strerror(errno) : "not found");
+        if(fd < 0)
+        {
+            debug(debug_dos, "%s.\n", fname ? strerror(errno) : "not found");
 
-        dos_error = !fname ? 3 : (h < 0 ? 4 : 5);
+            dos_error = !fname ? 3 : (h < 0 ? 4 : 5);
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+            free(fname);
+            break;
+        }
 
-        cpuSetAX(dos_error);
-        cpuSetFlag(cpuFlag_CF);
+        const char *picked = strrchr(fname, '/');
+        picked = picked ? picked + 1 : fname;
 
-        free(fname);
-        break;
-    }
+        putmem(addr + base_len,
+            (const uint8_t *)picked,
+            strlen(picked) + 1);
 
-    const char *picked = strrchr(fname, '/');
-    picked = picked ? picked + 1 : fname;
+        /* DOS read-only attribute. */
+        if(cpuGetCX() & 1)
+        {
+            if(fchmod(fd, 0444) < 0)
+            {
+                int saved_errno = errno;
+                debug(debug_dos, "warning: fchmod('%s',0444): %s\n", fname, strerror(saved_errno));
+            }
+        }
 
-    putmem(addr + base_len,
-           (const uint8_t *)picked,
-           strlen(picked) + 1);
-
-    /* DOS read-only attribute. */
-    if(cpuGetCX() & 1)
-    {
-        if(fchmod(fd, 0444) < 0)
+        FILE *fp = fdopen(fd, "w+b");
+        if(!fp)
         {
             int saved_errno = errno;
 
-            debug(debug_dos, "warning: fchmod('%s',0444): %s\n", fname, strerror(saved_errno));
+            close(fd);
+            unlink(fname);
+            debug(debug_dos, "fdopen('%s'): %s.\n", fname, strerror(saved_errno));
+            dos_error = 5;
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+
+            free(fname);
+            break;
         }
-    }
 
-    FILE *fp = fdopen(fd, "w+b");
-    if(!fp)
-    {
-        int saved_errno = errno;
+        handles[h] = fp;
+        devinfo[h] = drive;
 
-        close(fd);
-        unlink(fname);
-
-        memory[addr + base_len] = 0;
-
-        debug(debug_dos, "fdopen('%s'): %s.\n", fname, strerror(saved_errno));
-
-        dos_error = 5;
-        cpuSetAX(dos_error);
-        cpuSetFlag(cpuFlag_CF);
-
+        debug(debug_dos, "'%s' OK.\n", fname);
         free(fname);
+        dos_error = 0;
+        cpuClrFlag(cpuFlag_CF);
+        cpuSetAX(h);
         break;
     }
-
-    handles[h] = fp;
-    devinfo[h] = drive;
-
-    debug(debug_dos, "'%s' OK.\n", fname);
-
-    free(fname);
-
-    dos_error = 0;
-    cpuClrFlag(cpuFlag_CF);
-    cpuSetAX(h);
-
-    break;
-}
     case 0x5B: // CREATE NEW FILE
         dos_open_file(2, cpuGetAX() & 0xFF, cpuGetAddrDS(cpuGetDX()));
         break;
