@@ -350,7 +350,13 @@ static void term_goto_xy(unsigned x, unsigned y)
 
     if(term_posy < y && (int)term_posy < output_row)
     {
-        int inc = (int)y < output_row ? y - term_posy : output_row - term_posy;
+        // Do the subtraction entirely in the signed domain: output_row can
+        // legitimately be negative here, and mixing it with the unsigned
+        // term_posy makes C silently promote output_row to a huge unsigned
+        // value before subtracting, corrupting `inc` (and, two lines down,
+        // term_posy itself).
+        int inc = (int)y < output_row ? (int)y - (int)term_posy
+                                       : output_row - (int)term_posy;
         fprintf(tty_file, "\x1b[%dB", inc);
         term_posy += inc;
     }
@@ -493,11 +499,24 @@ static void vid_scroll_up(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, int n,
     {
         // Update screen before
         check_screen();
-        unsigned m = n > output_row + 1 ? output_row + 1 : n;
+        // output_row can already be negative from a previous scroll; clamp
+        // the available rows to >= 0 before it's used to compute an
+        // unsigned line count, otherwise a negative value wraps to a huge
+        // unsigned number and corrupts term_posy (and the cursor-movement
+        // escape codes generated from it) on the next call.
+        int avail = output_row + 1;
+        if(avail < 0)
+            avail = 0;
+        unsigned m = (unsigned)(n > avail ? avail : n);
         if(term_posy < m)
             term_goto_xy(0, m);
         output_row -= m;
-        term_posy -= m;
+        // term_goto_xy() clamps its target row to term_sy-1 (a full-height
+        // scroll can have m == term_sy, one past the last valid row index),
+        // so term_posy can end up one short of m even after the call
+        // above. Clamp instead of subtracting unconditionally, otherwise
+        // this legitimately underflows the unsigned term_posy.
+        term_posy = (term_posy > m) ? term_posy - m : 0;
         for(unsigned y = 0; y + m < term_sy; y++)
             for(unsigned x = 0; x < term_sx; x++)
                 term_screen[y][x].value = term_screen[y + m][x].value;
