@@ -7,6 +7,7 @@
 
 extern volatile int exit_cpu;
 extern uint8_t memory[];
+extern int opt_fullscreen;
 
 int cpuGetAddress(uint16_t segment, uint16_t offset);
 int cpuGetAddrDS(uint16_t offset);

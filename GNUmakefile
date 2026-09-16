@@ -66,7 +66,7 @@ obj/keyb.o: src/keyb.c src/keyb.h src/codepage.h src/dbg.h src/os.h src/emu.h \
  src/env.h
 obj/loader.o: src/loader.c src/loader.h src/dbg.h src/os.h src/emu.h
 obj/main.o: src/main.c src/dbg.h src/os.h src/dos.h src/dosnames.h src/emu.h \
- src/keyb.h src/timer.h src/video.h
+ src/keyb.h src/timer.h src/video.h src/env.h
 obj/timer.o: src/timer.c src/timer.h src/dbg.h src/os.h src/emu.h
 obj/utils.o: src/utils.c src/utils.h src/dbg.h src/os.h src/emu.h
 obj/video.o: src/video.c src/video.h src/codepage.h src/dbg.h src/os.h \
