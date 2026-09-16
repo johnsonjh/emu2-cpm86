@@ -124,6 +124,13 @@ env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
 | `EMU2_CPM_POISON` | Fill CP/M‑86 memory with byte specified before loading (for debugging). |
 | `EMU2_CPM_DIRY` | Fill CP/M‑86 memory with `0xFF` before loading (for debugging). |
 
+## Notes
+
+* Usage of AI (artificial intelligence) tools by contributors is currently
+  permitted, subject to the same terms and conditions as the
+  [LLVM AI Tool Use Policy](https://llvm.org/docs/AIToolPolicy.html), but
+  this permission may be withdrawn at any time and without notice.
+
 ## History
 
 * `emu2‑cpm86` is derived from the excellent [`emu2`](https://github.com/dmsc/emu2)
