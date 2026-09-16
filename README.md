@@ -22,6 +22,11 @@ The goal of this project is to create *the absolute best* CP/M‑86
 emulator possible, while maintaining *equal or better* support for
 MS‑DOS than [emu2](https://github.com/dmsc/emu2).
 
+* The [CP/M‑86&nbsp;Cross‑development&nbsp;toolchain](https://github.com/tsupplis/cpm86-crossdev),
+  [Open&nbsp;Watcom&nbsp;V2&nbsp;CP/M‑86&nbsp;toolchain](https://github.com/ravn/open-watcom-v2-ccpm86),
+  [LZPACK](https://github.com/johnsonjh/lzpack), and [DPS8M&nbsp;CRC](https://gitlab.com/dps8m/crc)
+  projects extensively "torture‑test" `emu2-cpm86`.
+
 ## Availability
 
 * [https://gitlab.com/johnsonjh/emu2-cpm86](https://gitlab.com/johnsonjh/emu2-cpm86)
