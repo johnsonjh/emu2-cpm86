@@ -26,7 +26,7 @@ OBJS=\
 all: emu2
 
 emu2: $(OBJS:%=obj/%)
-	$(CC) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+	$(CC) -o $@ $^ $(LDLIBS) $(LDFLAGS)
 
 obj/%.o: src/%.c | obj
 	$(CC) $(CFLAGS) -c -o $@ $<

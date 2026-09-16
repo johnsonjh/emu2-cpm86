@@ -12,11 +12,15 @@ Digital Research **CP/M‑86** operating systems for the UNIX console.
 Most DOS and CP/M‑86 system calls and text‑mode video I/O is supported.
 
 It is regularly tested and actively developed for IBM AIX, FreeBSD,
-NetBSD, OpenBSD, Haiku, Solaris, illumos, and GNU/Linux systems.  It
-should work on any system conforming to POSIX.1‑2008 with a C99 compiler.
+NetBSD, OpenBSD, Haiku, Solaris, illumos, Cygwin, and GNU/Linux systems.
 
-The goal is to create *the absolute best* CP/M‑86 emulator available, with
-*equal or better* support for DOS than [emu2](https://github.com/dmsc/emu2).
+It should work on any system conforming to POSIX.1‑2008 with a C99
+compiler.  The IBM XL C/C++, Oracle Studio C/C++, Clang, Open64,
+PCC (Portable C Compiler), and GNU GCC compilers are regularly tested.
+
+The goal of this project is to create *the absolute best* CP/M‑86
+emulator possible, while maintaining *equal or better* support for
+MS‑DOS than [emu2](https://github.com/dmsc/emu2).
 
 ## Availability
 
@@ -119,6 +123,17 @@ env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
 | `EMU2_RAMDUMP` | Path of a file to write the full 1 MB guest RAM image on exit.  The file is written as a flat binary (offset `0` = physical address `0x00000`).<br><br>Useful for post‑mortem inspection after a crash: load into a hex editor or disassembler and inspect the stack, BSS, and heap at the moment the program ended.<br><br>Has no effect on program behaviour; the dump is always written regardless of whether the program exits cleanly or crashes. |
 | `EMU2_CPM_POISON` | Fill CP/M‑86 memory with byte specified before loading (for debugging). |
 | `EMU2_CPM_DIRY` | Fill CP/M‑86 memory with `0xFF` before loading (for debugging). |
+
+## Notes
+
+* Usage of AI (artificial intelligence) tools by contributors is currently
+  permitted, subject to the same terms and conditions as the
+  [LLVM AI Tool Use Policy](https://llvm.org/docs/AIToolPolicy.html), but
+  this permission may be withdrawn at any time and without notice.
+
+## SAST Tools
+
+[PVS-Studio](https://pvs-studio.com/en/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source) - static code analyzer for Enterprise (C, C++, C#, Go, and Java) and Web (JS and TS) development.
 
 ## History
 
