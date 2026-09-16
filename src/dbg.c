@@ -123,14 +123,14 @@ NORETURN void print_usage(void)
            "\n"
            "Environment variables:\n"
            "  %-18s  Base name of a file to write the debug log, defaults to\n"
-           "\t\t      the exe name if not given.\n"
+"                      the exe name if not given.\n"
            "  %-18s  List of debug options to activate, from the following:\n"
-           "\t\t      'cpu', 'int', 'port', 'dos', 'video'.\n"
+"                      'cpu', 'int', 'port', 'dos', 'video'.\n"
            "  %-18s  DOS program name, if not given use the UNIX name.\n"
            "  %-18s  DOS default (current) drive letter, if not given use 'C:'\n"
            "  %-18s  DOS current working directory, use 'C:\\' if not given.\n"
            "  %-18s  Set UNIX path as root of drive 'n', by default all drives\n"
-           "\t\t      point to the UNIX working directory.\n"
+"                      point to the UNIX working directory.\n"
            "  %-18s  Set DOS code-page. Set to '?' to show list of code-pages.\n"
            "  %-18s  Limit DOS memory to 512KB, fixes some old buggy programs.\n"
            "  %-18s  Specifies DOS APPEND paths, separated by ';'.\n"
@@ -138,22 +138,25 @@ NORETURN void print_usage(void)
            "  %-18s  Setup text mode with given number of rows, from 12 to 50.\n"
            "  %-18s  Specifies CP/M-86 APPEND drive letters, separated by ';'.\n"
            "  %-18s  CP/M-86 disk block size: auto|1k|2k|4k|8k|16k (per drive\n"
-           "\t\t      with EMU2_CPM_DISK_<letter>).\n"
+"                      with EMU2_CPM_DISK_<letter>).\n"
            "  %-18s  CP/M-86 auto-disk target free-space percent (default 25).\n"
            "  %-18s  CP/M-86 CP/M-3 limits: 2048 extents / 32MB files / 512MB.\n"
            "  %-18s  CP/M-86 reported version, e.g. '3.1' (default) or '2.2'.\n"
-           "\t\t      3.0+ enables the last-record byte count for exact sizes.\n"
-           "  %-18s  Keep CP/M-86 output padded to 128-byte records: report the\n"
-           "\t\t      LRBC byte count but do not trim host files to it.\n"
-           "  %-18s  Use the ISX last-record byte count convention (unused bytes)\n"
-           "\t\t      instead of DOS Plus (used bytes); default off (DOS Plus).\n"
-           "  %-18s  CP/M-86 console emulation (VT52/colour); set 0 to disable.\n"
+"                      3.0+ enables the last-record byte count for exact sizes.\n"
+           "  %-18s  Keep CP/M-86 output padded to 128-byte record: report the\n"
+"                      LRBC byte count but do not trim host files to it.\n"
+           "  %-18s  Use ISX last-record byte count convention (unused bytes)\n"
+"                      instead of DOS-Plus (used bytes); default off (DOS-Plus).\n"
+           "  %-18s  CP/M-86 console emulation (VT102+DRI); set 0 to disable.\n"
            "  %-18s  CP/M-86 TPA size in KB; same as -m.\n"
            "  %-18s  Fill memory with <byte> before loading (for debugging).\n"
            "  %-18s  Fill memory with 0xFF before loading (for debugging).\n"
-           "  %-18s  # of kbhit calls before throttle (default 1000, 0 is off).\n"
-           "  %-18s  Time (in us) for kbhit throttle detection (default 10000).\n"
-           "  %-18s  Sleep time (in us) of kbhit throttle delay (default 10000).\n",
+           "  %-18s  Count of kbhit calls over EMU2_KBHIT_TIME duration before\n"
+"                      throttling (default 1000, 0 disables throttling).\n"
+           "  %-18s  Time (in microseconds) for kbhit throttling detection\n"
+"                      (default 10000).\n"
+           "  %-18s  Sleep time (in microseconds) for the kbhit throttle delay\n"
+"                      (default 10000).\n",
            prog_name,
            ENV_DBG_NAME,
            ENV_DBG_OPT,
@@ -268,3 +271,4 @@ void debug(enum debug_type dt, const char *format, ...)
         fflush(debug_files[dt]);
     }
 }
+//vim: set ts=8 sw=4 tw=0 expandtab cc=80 :
