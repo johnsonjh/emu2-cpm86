@@ -19,7 +19,7 @@ and GNU GCC compilers are regularly tested.
 
 The goal of this project is to create *the absolute best* CP/M‑86
 emulator possible, while maintaining *equal or better* support for
-MS‑DOS/PC‑DOS than [emu2](https://github.com/dmsc/emu2).
+MS‑DOS/PC‑DOS than [`emu2`](https://github.com/dmsc/emu2).
 
 The [CP/M‑86&nbsp;cross‑development&nbsp;toolchain](https://github.com/tsupplis/cpm86-crossdev), the
 [Open&nbsp;Watcom&nbsp;V2&nbsp;CP/M‑86&nbsp;toolchain](https://github.com/ravn/open-watcom-v2-ccpm86),
@@ -137,7 +137,7 @@ env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
 
 ## SAST Tools
 
-[PVS-Studio](https://pvs-studio.com/en/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source) - static code analyzer for Enterprise (C, C++, C#, Go, and Java) and Web (JS and TS) development.
+* [PVS-Studio](https://pvs-studio.com/en/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source) - static code analyzer for Enterprise (C, C++, C#, Go, and Java) and Web (JS and TS) development.
 
 ## History
 
