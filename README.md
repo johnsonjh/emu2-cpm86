@@ -13,19 +13,18 @@ Most DOS and CP/M‑86 system calls and text‑mode video I/O is supported.
 
 It is regularly tested and actively developed for IBM AIX, FreeBSD,
 NetBSD, OpenBSD, Haiku, Solaris, illumos, Cygwin, and GNU/Linux systems.
-
-It should work on any system conforming to POSIX.1‑2008 with a C99
-compiler.  The IBM XL C/C++, Oracle Studio C/C++, Clang, Open64,
-PCC (Portable C Compiler), and GNU GCC compilers are regularly tested.
+It should work on any system conforming to POSIX.1‑2008 with a C99 compiler.
+The IBM XL C/C++, Oracle Studio C/C++, Clang, Open64, PCC (Portable C Compiler),
+and GNU GCC compilers are regularly tested.
 
 The goal of this project is to create *the absolute best* CP/M‑86
 emulator possible, while maintaining *equal or better* support for
-MS‑DOS than [emu2](https://github.com/dmsc/emu2).
+MS‑DOS/PC‑DOS than [emu2](https://github.com/dmsc/emu2).
 
-* The [CP/M‑86&nbsp;Cross‑development&nbsp;toolchain](https://github.com/tsupplis/cpm86-crossdev),
-  [Open&nbsp;Watcom&nbsp;V2&nbsp;CP/M‑86&nbsp;toolchain](https://github.com/ravn/open-watcom-v2-ccpm86),
-  [LZPACK](https://github.com/johnsonjh/lzpack), and [DPS8M&nbsp;CRC](https://gitlab.com/dps8m/crc)
-  projects extensively "torture‑test" `emu2-cpm86`.
+The [CP/M‑86&nbsp;cross‑development&nbsp;toolchain](https://github.com/tsupplis/cpm86-crossdev), the
+[Open&nbsp;Watcom&nbsp;V2&nbsp;CP/M‑86&nbsp;toolchain](https://github.com/ravn/open-watcom-v2-ccpm86),
+[LZPACK](https://github.com/johnsonjh/lzpack), and [DPS8M&nbsp;CRC](https://gitlab.com/dps8m/crc)
+projects *extensively* "torture‑test" `emu2-cpm86`.
 
 ## Availability
 
@@ -34,7 +33,7 @@ MS‑DOS than [emu2](https://github.com/dmsc/emu2).
 
 ## Using the emulator
 
-To run a CP/M‑86 `.cmd` file or a DOS `.exe` or `.com` file, simply
+To run a CP/M‑86 `.CMD` program, or a DOS `.EXE` or `.COM` program, simply
 load it with:
 
 ```
