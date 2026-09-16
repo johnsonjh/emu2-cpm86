@@ -15,8 +15,8 @@ It is regularly tested and actively developed for IBM AIX, FreeBSD,
 NetBSD, OpenBSD, Haiku, Solaris, illumos, and GNU/Linux systems.
 
 It should work on any system conforming to POSIX.1‑2008 with a C99
-compiler.  The IBM XL C/C++, Oracle Studio C/C++, Clang,
-PCC (Portable C Compiler) and GNU GCC compilers are regularly tested.
+compiler.  The IBM XL C/C++, Oracle Studio C/C++, Clang, Open64,
+PCC (Portable C Compiler), and GNU GCC compilers are regularly tested.
 
 The goal of this project is to create *the absolute best* CP/M‑86
 emulator possible, while maintaining *equal or better* support for
