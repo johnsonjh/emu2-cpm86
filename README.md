@@ -131,6 +131,10 @@ env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
   [LLVM AI Tool Use Policy](https://llvm.org/docs/AIToolPolicy.html), but
   this permission may be withdrawn at any time and without notice.
 
+## SAST Tools
+
+[PVS-Studio](https://pvs-studio.com/en/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source) - static code analyzer for Enterprise (C, C++, C#, Go, and Java) and Web (JS and TS) development.
+
 ## History
 
 * `emu2‑cpm86` is derived from the excellent [`emu2`](https://github.com/dmsc/emu2)
