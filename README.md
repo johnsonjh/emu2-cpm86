@@ -12,7 +12,7 @@ Digital Research **CP/M‑86** operating systems for the UNIX console.
 Most DOS and CP/M‑86 system calls and text‑mode video I/O is supported.
 
 It is regularly tested and actively developed for IBM AIX, FreeBSD,
-NetBSD, OpenBSD, Haiku, Solaris, illumos, and GNU/Linux systems.
+NetBSD, OpenBSD, Haiku, Solaris, illumos, Cygwin, and GNU/Linux systems.
 
 It should work on any system conforming to POSIX.1‑2008 with a C99
 compiler.  The IBM XL C/C++, Oracle Studio C/C++, Clang, Open64,
