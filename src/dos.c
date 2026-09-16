@@ -2493,6 +2493,53 @@ void intr21(void)
     case 0x59: // GET EXTENDED ERROR
         cpuSetAX(dos_error);
         break;
+case 0x5A: // CREATE TEMPORARY FILE
+    {
+        // DS:DX -> ASCIZ directory path ending in '\', with room for DOS to
+        // append a generated unique name. Append a template ending in six
+        // X's, resolve it to a host path, and let mkstemp() atomically pick
+        // a free name and create it (no manual collision-retry needed).
+        int addr = cpuGetAddrDS(cpuGetDX());
+        unsigned base_len = strlen(getstr(addr, 63));
+        static const char tmpl_name[] = "TMXXXXXX"; // 8.3-legal, no extension
+        putmem(addr + base_len, (const uint8_t *)tmpl_name, sizeof(tmpl_name));
+        char *fname = dos_unix_path(addr, 1, append_path());
+        debug(debug_dos, "\tcreate tmpfile '%s' ", fname ? fname : "?");
+        int h = get_new_handle();
+        int fd = (fname && h >= 0) ? mkstemp(fname) : -1;
+        if(fd < 0)
+        {
+            memory[addr + base_len] = 0; // restore caller's original path
+            debug(debug_dos, "%s.\n", fname ? strerror(errno) : "not found");
+            dos_error = !fname ? 3 : (h < 0 ? 4 : 5);
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+            free(fname);
+            break;
+        }
+        // Report back the unique name mkstemp actually picked.
+        const char *picked = strrchr(fname, '/');
+        picked = picked ? picked + 1 : fname;
+        putmem(addr + base_len, (const uint8_t *)picked, strlen(picked) + 1);
+        // TODO: only the read-only bit of CX is honored; hidden/system/etc
+        // have no direct host equivalent (same limitation as AH=3Ch/5Bh/6Ch).
+        if(cpuGetCX() & 1)
+            fchmod(fd, 0444);
+        handles[h] = fdopen(fd, "w+b");
+        if(memory[addr + 1] == ':')
+        {
+            uint8_t c = memory[addr];
+            devinfo[h] = (c >= 'a') ? c - 'a' : c - 'A';
+        }
+        else
+            devinfo[h] = dos_get_default_drive();
+        debug(debug_dos, "'%s' OK.\n", fname);
+        free(fname);
+        dos_error = 0;
+        cpuClrFlag(cpuFlag_CF);
+        cpuSetAX(h);
+        break;
+    }
     case 0x5B: // CREATE NEW FILE
         dos_open_file(2, cpuGetAX() & 0xFF, cpuGetAddrDS(cpuGetDX()));
         break;
