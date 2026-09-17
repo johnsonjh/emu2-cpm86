@@ -2508,7 +2508,7 @@ void intr21(void)
     case 0x59: // GET EXTENDED ERROR
         cpuSetAX(dos_error);
         break;
-case 0x5A: /* CREATE TEMPORARY FILE */
+    case 0x5A: /* CREATE TEMPORARY FILE */
     {
         int addr = cpuGetAddrDS(cpuGetDX());
         unsigned base_len = strlen(getstr(addr, 63));
@@ -2520,39 +2520,59 @@ case 0x5A: /* CREATE TEMPORARY FILE */
             drive = (c >= 'a') ? c - 'a' : c - 'A';
         }
 
+        int h = get_new_handle();
+        if(h < 0)
+        {
+            dos_error = 4; // Too many open files
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        }
+
         char *dir = dos_unix_path(addr, 1, append_path());
+        if(!dir)
+        {
+            dos_error = 3; // Path not found
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        }
 
-        debug(debug_dos, "\tcreate tmpfile at '%s' ", dir ? dir : "?");
+        debug(debug_dos, "\tcreate tmpfile at '%s' ", dir);
 
-        size_t dlen = dir ? strlen(dir) : 0;
+        size_t dlen = strlen(dir);
         while(dlen && dir[dlen - 1] == '/')
             dlen--;
 
-        int h = get_new_handle();
-        char *fname = (dir && h >= 0) ? malloc(dlen + sizeof("/tmpXXXXX.XXX")) : 0;
-        int fd = -1;
-        if(fname)
+        char *fname = malloc(dlen + sizeof("/tmpXXXXX.XXX"));
+        if(!fname)
         {
-            // Retry with a fresh random name on collision.
-            for(int tries = 0; tries < 100; tries++)
-            {
-                char suf[8];
-                tmp_name_suffix(suf, 8);
-                sprintf(fname, "%.*s/tmp%c%c%c%c%c.%c%c%c", (int)dlen, dir,
-                        suf[0], suf[1], suf[2], suf[3], suf[4],
-                        suf[5], suf[6], suf[7]);
-                fd = open(fname, O_CREAT | O_EXCL | O_RDWR, 0666);
-                if(fd >= 0 || errno != EEXIST)
-                    break;
-            }
+            free(dir);
+            dos_error = 5; // Access denied / Out of memory
+            cpuSetAX(dos_error);
+            cpuSetFlag(cpuFlag_CF);
+            break;
+        }
+
+        int fd = -1;
+        // Retry with a fresh random name on collision.
+        for(int tries = 0; tries < 100; tries++)
+        {
+            char suf[8];
+            tmp_name_suffix(suf, 8);
+            sprintf(fname, "%.*s/tmp%c%c%c%c%c.%c%c%c", (int)dlen, dir,
+                    suf[0], suf[1], suf[2], suf[3], suf[4],
+                    suf[5], suf[6], suf[7]);
+            fd = open(fname, O_CREAT | O_EXCL | O_RDWR, 0600);
+            if(fd >= 0 || errno != EEXIST)
+                break;
         }
         free(dir);
 
         if(fd < 0)
         {
-            debug(debug_dos, "%s.\n", fname ? strerror(errno) : "not found");
-
-            dos_error = !fname ? 3 : (h < 0 ? 4 : 5);
+            debug(debug_dos, "%s.\n", strerror(errno));
+            dos_error = (errno == ENOENT) ? 3 : 5;
             cpuSetAX(dos_error);
             cpuSetFlag(cpuFlag_CF);
             free(fname);
@@ -2569,10 +2589,10 @@ case 0x5A: /* CREATE TEMPORARY FILE */
         /* DOS read-only attribute. */
         if(cpuGetCX() & 1)
         {
-            if(fchmod(fd, 0444) < 0)
+            if(fchmod(fd, 0400) < 0)
             {
                 int saved_errno = errno;
-                debug(debug_dos, "warning: fchmod('%s',0444): %s\n", fname, strerror(saved_errno));
+                debug(debug_dos, "warning: fchmod('%s',0400): %s\n", fname, strerror(saved_errno));
             }
         }
 

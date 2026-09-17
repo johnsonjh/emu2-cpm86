@@ -52,6 +52,7 @@ static uint16_t crtc_cursor_loc;
 
 // Forward
 static void term_goto_xy(unsigned x, unsigned y);
+static void init_video(void);
 
 // Signal handler - terminal size changed
 // TODO: not used yet.
@@ -158,6 +159,18 @@ static void set_text_mode(int mode, int clear)
     // Clear video screen
     if(clear)
     {
+        if(opt_fullscreen)
+        {
+            if(!video_initialized)
+                init_video();
+            fputs("\x1b[2J\x1b[H", tty_file);
+            fflush(tty_file);
+            output_row = -1;
+            term_posy = 0;
+            for(unsigned y = 0; y < 64; y++)
+                for(unsigned x = 0; x < 256; x++)
+                    term_screen[y][x].value = 0xFFFF;
+        }
         uint16_t *vm = (uint16_t *)(memory + 0xB8000);
         for(int i = 0; i < 16384; i++)
             vm[i] = get_cell(0x20, 0x07).value;
@@ -296,6 +309,36 @@ static void vid_set_font(unsigned lines)
     update_posxy();
 }
 
+static void vid_set_rows(unsigned rows)
+{
+    if(rows > 64)
+        rows = 64;
+    else if(rows < 12)
+        rows = 12;
+
+    unsigned max = get_last_used_row();
+    debug(debug_video, "set %u rows mode from %u\n", rows, max);
+
+    if(video_active() && max > rows)
+    {
+        term_goto_xy(0, rows - 1);
+        set_color(0x07);
+        fputs("\x1b[J", tty_file);
+        for(int y = rows; y < 64; y++)
+            for(int x = 0; x < 256; x++)
+                term_screen[y][x] = get_cell(0x20, 0x07);
+        if(output_row > (int)rows - 1)
+            output_row = rows - 1;
+    }
+    vid_sy = rows;
+    vid_font_lines = vid_scan_lines / rows;
+    if(vid_font_lines < 8) vid_font_lines = 8;
+    memory[0x484] = vid_sy - 1;
+    memory[0x485] = vid_font_lines;
+    memory[0x486] = 0;
+    update_posxy();
+}
+
 void video_init_mem(void)
 {
     // Fill the functionality table
@@ -316,10 +359,8 @@ void video_init_mem(void)
     if(getenv(ENV_ROWS))
     {
         unsigned rows = atoi(getenv(ENV_ROWS));
-        if(rows > 12 && rows <= 50)
-            vid_set_font(400 / rows);
-        else if(rows == 12)
-            vid_set_font(32);
+        if(rows >= 12 && rows <= 64)
+            vid_set_rows(rows);
     }
 }
 
@@ -495,7 +536,7 @@ static void vid_scroll_up(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, int n,
         n = y1 + 1 - y0;
 
     // Scroll TERMINAL if we are scrolling (almost) the entire screen
-    if(y0 == 0 && y1 >= vid_sy - 2 && x0 < 2 && x1 >= vid_sx - 2)
+    if(!opt_fullscreen && y0 == 0 && y1 >= vid_sy - 2 && x0 < 2 && x1 >= vid_sx - 2)
     {
         // Update screen before
         check_screen();
@@ -741,6 +782,16 @@ void video_clear_screen(void)
 {
     if(!video_initialized)
         init_video();
+    if(opt_fullscreen)
+    {
+        fputs("\x1b[2J\x1b[H", tty_file);
+        fflush(tty_file);
+        output_row = -1;
+        term_posy = 0;
+        for(unsigned y = 0; y < 64; y++)
+            for(unsigned x = 0; x < 256; x++)
+                term_screen[y][x].value = 0xFFFF;
+    }
     int page = vid_page;
     for(unsigned y = 0; y < vid_sy; y++)
         for(unsigned x = 0; x < vid_sx; x++)

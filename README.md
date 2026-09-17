@@ -13,14 +13,18 @@ Most DOS and CP/M‑86 system calls and text‑mode video I/O is supported.
 
 It is regularly tested and actively developed for IBM AIX, FreeBSD,
 NetBSD, OpenBSD, Haiku, Solaris, illumos, Cygwin, and GNU/Linux systems.
-
-It should work on any system conforming to POSIX.1‑2008 with a C99
-compiler.  The IBM XL C/C++, Oracle Studio C/C++, Clang, Open64,
-PCC (Portable C Compiler), and GNU GCC compilers are regularly tested.
+It should work on any system conforming to POSIX.1‑2008 with a C99 compiler.
+The IBM XL C/C++, Oracle Studio C/C++, Clang, Open64, PCC (Portable C Compiler),
+and GNU GCC compilers are regularly tested.
 
 The goal of this project is to create *the absolute best* CP/M‑86
 emulator possible, while maintaining *equal or better* support for
-MS‑DOS than [emu2](https://github.com/dmsc/emu2).
+MS‑DOS/PC‑DOS than [`emu2`](https://github.com/dmsc/emu2).
+
+The [CP/M‑86&nbsp;cross‑development&nbsp;toolchain](https://github.com/tsupplis/cpm86-crossdev), the
+[Open&nbsp;Watcom&nbsp;V2&nbsp;CP/M‑86&nbsp;toolchain](https://github.com/ravn/open-watcom-v2-ccpm86),
+[LZPACK](https://github.com/johnsonjh/lzpack), and [DPS8M&nbsp;CRC](https://gitlab.com/dps8m/crc)
+projects *extensively* "torture‑test" `emu2-cpm86`.
 
 ## Availability
 
@@ -29,7 +33,7 @@ MS‑DOS than [emu2](https://github.com/dmsc/emu2).
 
 ## Using the emulator
 
-To run a CP/M‑86 `.cmd` file or a DOS `.exe` or `.com` file, simply
+To run a CP/M‑86 `.CMD` program, or a DOS `.EXE` or `.COM` program, simply
 load it with:
 
 ```
@@ -109,6 +113,7 @@ env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
 | `EMU2_LOWMEM` | Limits main memory to 512KB, this fixes some old DOS programs with a bug that checks available memory using "signed" comparison instructions (`JLE` instead of `JBE`).<br><br>This is needed at least for MASM versions 1.0 and 1.10. |
 | `EMU2_DOSVER` | Changes the reported DOS version, allowing programs that checks this version to run.<br><br>You can specify a major version or a major dot minor, for example `3.20`, `2.11` or `5`. |
 | `EMU2_ROWS` | Sets up the VGA text mode to the given number of rows, from `12` to `50` at the program start.<br><br>Some full‑screen DOS programs will retrieve this info and adjust the screen properly, some other will ignore this and setup the text mode again. |
+| `EMU2_FULLSCREEN` | Run explicitly as a full‑screen program.  When enabled, the terminal is fully cleared when entering video mode, and some text scrolling heuristics are disabled. |
 | `EMU2_CPU_SPEED` | Limits the emulated CPU speed to at most the given number of instructions per millisecond. For reference, a value of 1000 (1 MIPS) approximates a fast 8086 or slow 80286.<br><br>By default (or when set to `0`), there is no limit; a modern PC can typically reach 200,000 or more instructions per millisecond.<br><br>Note that this does not accurately emulate a specific CPU speed, since real 8086/80286 processors take a varying number of cycles per instruction. |
 | `EMU2_KBHIT_CALLS` | Number of `kbhit()` polling calls allowed in time limit for tight-loop detection. If more than `EMU2_KBHIT_CALLS` execute in less than `EMU2_KBHIT_TIME` microseconds, the CPU sleeps for `EMU2_KBHIT_SLEEP` microseconds.<br><br>Default is `1000`. Set to `0` to *completely disable* the keyboard throttling (otherwise idle CP/M and DOS programs may consume 100% host CPU, but *may* be more responsive). |
 | `EMU2_KBHIT_TIME` | Time threshold in microseconds for the `kbhit()` tight‑loop detection. Default is `10000` (10ms). |
@@ -133,7 +138,7 @@ env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
 
 ## SAST Tools
 
-[PVS-Studio](https://pvs-studio.com/en/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source) - static code analyzer for Enterprise (C, C++, C#, Go, and Java) and Web (JS and TS) development.
+* [PVS-Studio](https://pvs-studio.com/en/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source) - static code analyzer for Enterprise (C, C++, C#, Go, and Java) and Web (JS and TS) development.
 
 ## History
 

@@ -6,6 +6,7 @@
 #include "dos.h"
 #include "dosnames.h"
 #include "emu.h"
+#include "env.h"
 #include "keyb.h"
 #include "timer.h"
 #include "video.h"
@@ -21,6 +22,8 @@
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+int opt_fullscreen = 0;
 
 uint8_t read_port(unsigned port)
 {
@@ -247,6 +250,9 @@ int main(int argc, char **argv)
     int arg_script_newline_delay = -1;
     prog_name = argv[0];
 
+    if(getenv(ENV_FULLSCREEN))
+        opt_fullscreen = atoi(getenv(ENV_FULLSCREEN));
+
     // Process command line options
     int bin_load_seg = 0, bin_load_ip = 0, bin_load_addr = -1;
     int skip_init_bios = 0;
@@ -289,6 +295,9 @@ int main(int argc, char **argv)
         case 'v':
             print_version();
             exit(EXIT_SUCCESS);
+        case 'f':
+            opt_fullscreen = 1;
+            break;
         case 'b':
             bin_load_addr = strtol(opt, &ep, 0);
             if(*ep || bin_load_addr < 0 || bin_load_addr > 0xFFFF0)
