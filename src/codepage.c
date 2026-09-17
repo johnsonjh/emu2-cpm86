@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* List of code-pages */
+/* List of codepages */
 struct cp_data
 {
     const char *names;
@@ -204,6 +204,7 @@ static const struct cp_data cp_data[] = {
 };
 
 static const uint16_t *cp_table = cp_data[0].table;
+static int cp_disabled = 0;
 
 static int read_codepage_file(const char *fname)
 {
@@ -298,8 +299,22 @@ void init_codepage(void)
     {
         if(!strcmp(cp, "?"))
             list_codepages();
+        if(!strcmp(cp, "0"))
+        {
+            // Explicitly disabled codepage translation; output is written
+            // exactly as the program sends it, with no UTF-8 translation
+            debug(debug_dos, "init_codepage: codepage translation disabled "
+                              "(EMU2_CODEPAGE=0)\n");
+            cp_disabled = 1;
+            return;
+        }
         set_codepage(cp);
     }
+}
+
+int codepage_disabled(void)
+{
+    return cp_disabled;
 }
 
 /* Transforms a DOS char to Unicode */

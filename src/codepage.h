@@ -11,6 +11,9 @@ void set_codepage(const char *cp_name);
 /* Set codepage from environment variable, if found */
 void init_codepage(void);
 
+/* Is codepage translation was explicitly disabled (EMU2_CODEPAGE=0)? */
+int codepage_disabled(void);
+
 /* Transforms a DOS char to Unicode */
 int get_unicode(uint8_t cp);
 

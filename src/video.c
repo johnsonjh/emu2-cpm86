@@ -367,6 +367,11 @@ void video_init_mem(void)
 // Writes a DOS character to the current terminal position
 static void put_vc(uint8_t c)
 {
+    if(codepage_disabled())
+    {
+        putc(c, tty_file);
+        return;
+    }
     uint16_t uc = get_unicode(c);
     if(uc < 128)
         putc(uc, tty_file);
