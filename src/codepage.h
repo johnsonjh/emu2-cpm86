@@ -8,7 +8,7 @@
  */
 void set_codepage(const char *cp_name);
 
-/* Set codepage from environmebt variable, if found */
+/* Set codepage from environment variable, if found */
 void init_codepage(void);
 
 /* Transforms a DOS char to Unicode */
