@@ -24,12 +24,12 @@ MS‑DOS/PC‑DOS than [`emu2`](https://github.com/dmsc/emu2).
 The [CP/M‑86&nbsp;cross‑development&nbsp;toolchain](https://github.com/tsupplis/cpm86-crossdev), the
 [Open&nbsp;Watcom&nbsp;V2&nbsp;CP/M‑86&nbsp;toolchain](https://github.com/ravn/open-watcom-v2-ccpm86),
 [LZPACK](https://github.com/johnsonjh/lzpack), and [DPS8M&nbsp;CRC](https://gitlab.com/dps8m/crc)
-projects *extensively* "torture‑test" `emu2-cpm86`.
+projects *extensively* "torture‑test" `emu2‑cpm86`.
 
 ## Availability
 
-* [https://gitlab.com/johnsonjh/emu2-cpm86](https://gitlab.com/johnsonjh/emu2-cpm86)
-* [https://github.com/johnsonjh/emu2-cpm86](https://github.com/johnsonjh/emu2-cpm86)
+* [https://gitlab.com/johnsonjh/emu2‑cpm86](https://gitlab.com/johnsonjh/emu2-cpm86)
+* [https://github.com/johnsonjh/emu2‑cpm86](https://github.com/johnsonjh/emu2-cpm86)
 
 ## Using the emulator
 
@@ -109,13 +109,14 @@ env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
 | `EMU2_DRIVE_n` | Set UNIX path as root of drive `n`, by default all drives point to the UNIX working directory. |
 | `EMU2_APPEND` | Sets a list of paths to search for *data* files on open, emulating the DOS `APPEND` command.<br><br>Only *data files with a relative path* are included in the search, and the search is relative to the current working directory if no drive letter is specified in the APPEND path. For example, if set to "`TXT;C:\IN`", when opening the file "`CAT.TXT`" the file is searched as "`CAT.TXT`", "`TXT\CAT.TXT`" and "`C:\IN\CAT.TXT`" in turn. |
 | `EMU2_CPM_APPEND` | Sets a list of CP/M‑86 drive letters (e.g. `D:;E:`) to search for *data* files on open for CP/M‑86 programs.<br><br>Works very much like the DOS `EMU2_APPEND` option, but for CP/M‑86 programs. This maps one or more drives to appear as part of the current drive for programs that search for and open *data* files. |
-| `EMU2_CODEPAGE` | Set DOS code‑page to the specified string.<br><br>Set to `?` to show list of included code‑pages, multiple aliases separated with commas.  Set to a file name to read the mapping table from a file with the Unicode value for each byte.<br><br>You can [download](ftp://ftp.unicode.org/Public/MAPPINGS/VENDORS/MICSFT/PC/) additional mapping tables via FTP. The code‑page setting affects keyboard input and screen output, but does not change the DOS NLS information.<br><br>The default code‑page is `CP437`. |
+| `EMU2_CODEPAGE` | Set output codepage to the one specified by the string.<br><br>Set to `?` to show list of included codepages or `0` to explictly disable any codepage translation.  Multiple aliases are separated with commas.  Set to a filename to read the mapping table from a file (that specifies a Unicode value for each byte).<br><br>You can download these mapping tables via FTP from `ftp://ftp.unicode.org/Public/MAPPINGS/VENDORS/MICSFT/PC/`.  The codepage setting affects keyboard input and screen output, but does *not* change the DOS NLS information.<br><br>The default codepage is `CP437`. |
 | `EMU2_LOWMEM` | Limits main memory to 512KB, this fixes some old DOS programs with a bug that checks available memory using "signed" comparison instructions (`JLE` instead of `JBE`).<br><br>This is needed at least for MASM versions 1.0 and 1.10. |
 | `EMU2_DOSVER` | Changes the reported DOS version, allowing programs that checks this version to run.<br><br>You can specify a major version or a major dot minor, for example `3.20`, `2.11` or `5`. |
-| `EMU2_ROWS` | Sets up the VGA text mode to the given number of rows, from `12` to `50` at the program start.<br><br>Some full‑screen DOS programs will retrieve this info and adjust the screen properly, some other will ignore this and setup the text mode again. |
-| `EMU2_FULLSCREEN` | Run explicitly as a full‑screen program.  When enabled, the terminal is fully cleared when entering video mode, and some text scrolling heuristics are disabled. |
+| `EMU2_ROWS` | Sets up the VGA text mode console to the given number of rows, from `12` to `50`, at the program start.<br><br>Set to `auto` to detect the terminal row count at startup (with detected values clamped to fit between `12` and `50`).<br><br>Some full‑screen programs will retrieve this info and adjust the screen properly, others ignore this and setup the text mode again. |
+| `EMU2_COLS` | Sets up the VGA text mode to the given number of columns, from `40` to `132` at the program start. Set to `auto` to detect the terminal column count at startup (with detected values clamped to fit between `40` and `132`).<br><br>Some full‑screen programs will retrieve this info and adjust the screen properly, others ignore this and setup the text mode again. |
+| `EMU2_FULLSCREEN` | Run explicitly as a full‑screen direct video program.<br><br>When enabled, the terminal is fully cleared, direct video mode is enabled, and some text processing heuristics are disabled. |
 | `EMU2_CPU_SPEED` | Limits the emulated CPU speed to at most the given number of instructions per millisecond. For reference, a value of 1000 (1 MIPS) approximates a fast 8086 or slow 80286.<br><br>By default (or when set to `0`), there is no limit; a modern PC can typically reach 200,000 or more instructions per millisecond.<br><br>Note that this does not accurately emulate a specific CPU speed, since real 8086/80286 processors take a varying number of cycles per instruction. |
-| `EMU2_KBHIT_CALLS` | Number of `kbhit()` polling calls allowed in time limit for tight-loop detection. If more than `EMU2_KBHIT_CALLS` execute in less than `EMU2_KBHIT_TIME` microseconds, the CPU sleeps for `EMU2_KBHIT_SLEEP` microseconds.<br><br>Default is `1000`. Set to `0` to *completely disable* the keyboard throttling (otherwise idle CP/M and DOS programs may consume 100% host CPU, but *may* be more responsive). |
+| `EMU2_KBHIT_CALLS` | Number of `kbhit()` polling calls allowed in time limit for tight‑loop detection. If more than `EMU2_KBHIT_CALLS` execute in less than `EMU2_KBHIT_TIME` microseconds, the CPU sleeps for `EMU2_KBHIT_SLEEP` microseconds.<br><br>Default is `1000`. Set to `0` to *completely disable* the keyboard throttling (otherwise idle CP/M and DOS programs may consume 100% host CPU, but *may* be more responsive). |
 | `EMU2_KBHIT_TIME` | Time threshold in microseconds for the `kbhit()` tight‑loop detection. Default is `10000` (10ms). |
 | `EMU2_KBHIT_SLEEP` | Sleep duration in microseconds when the tight‑loop detection gets triggered. Default is `10000` (10ms). |
 | `EMU2_CPM_DISK` | Block size of the fabricated CP/M‑86 "disk" that presents each drive's host directory: `auto` (default), `1k`, `2k`, `4k`, `8k` or `16k`.<br><br>The block size is the allocation granularity.  The smallest reportable file size (`1k` keeps small files exact; bigger blocks are needed for bigger disks).<br><br>`auto` scans the directory and picks the smallest block size that holds it.<br><br>The disk itself is sized to the directory's contents (see `EMU2_CPM_FREE`) and then capped at the guest‑tool ceiling: about 8 MB for a standard CP/M 2.2 program (its 16‑bit record count and allocation bitmap top out there), or 512 MB with `EMU2_CPM_PLUS`. Files too big to fit aren't listed, as on a real CP/M disk.<br><br>Per‑drive override: `EMU2_CPM_DISK_C`, `EMU2_CPM_DISK_D`, ... take precedence over the global setting. Only affects native CP/M‑86 programs. |
@@ -138,7 +139,7 @@ env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
 
 ## SAST Tools
 
-* [PVS-Studio](https://pvs-studio.com/en/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source) - static code analyzer for Enterprise (C, C++, C#, Go, and Java) and Web (JS and TS) development.
+* [PVS‑Studio](https://pvs-studio.com/en/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source) - static code analyzer for Enterprise (C, C++, C#, Go, and Java) and Web (JS and TS) development.
 
 ## History
 

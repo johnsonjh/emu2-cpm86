@@ -980,6 +980,31 @@ void dos_console_putc(uint8_t ch)
         putchar(ch);
 }
 
+// Writes a DOS-codepage byte to a host FILE*, translated to UTF-8. For the upper half
+// (0x80-0xFF) the codepage-specific chars, and bytes below 0x80 are written unchanged.
+static void putc_cp(uint8_t ch, FILE *f)
+{
+    if(ch < 0x80 || codepage_disabled())
+    {
+        putc(ch, f);
+        return;
+    }
+    uint16_t uc = get_unicode(ch);
+    if(uc < 128)
+        putc(uc, f);
+    else if(uc < 0x800)
+    {
+        putc(0xC0 | (uc >> 6), f);
+        putc(0x80 | (uc & 0x3F), f);
+    }
+    else
+    {
+        putc(0xE0 | (uc >> 12), f);
+        putc(0x80 | ((uc >> 6) & 0x3F), f);
+        putc(0x80 | (uc & 0x3F), f);
+    }
+}
+
 // Writes a character to standard output.
 static void dos_putchar(uint8_t ch, int fd)
 {
@@ -999,13 +1024,18 @@ static void dos_putchar(uint8_t ch, int fd)
         else
             video_putch(ch);
     }
+    else if(devinfo[fd] == 0x80D3)
+    {
+        FILE *out = handles[fd];
+        if(!fd && devinfo[0] == 0x80D3 && devinfo[1] == 0x80D3)
+            // DOS programs can write to STDIN and expect output to the terminal.
+	    // This hack will only work if STDOUT is not redirected, in real DOS
+	    // you can redirect STDOUT and write to STDIN.
+            out = handles[1];
+        putc_cp(ch, out ? out : stdout);
+    }
     else if(!handles[fd])
         putchar(ch);
-    else if(!fd && devinfo[0] == 0x80D3 && devinfo[1] == 0x80D3)
-        // DOS programs can write to STDIN and expect output to the terminal.
-        // This hack will only work if STDOUT is not redirected, in real DOS
-        // you can redirect STDOUT and write to STDIN.
-        fputc(ch, handles[1]);
     else
         fputc(ch, handles[fd]);
 }

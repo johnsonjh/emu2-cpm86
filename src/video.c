@@ -96,6 +96,32 @@ static void term_get_size(void)
     }
 }
 
+// Automatically determine the terminal column count.
+static unsigned term_get_cols_auto(void)
+{
+    struct winsize ws;
+    int fd = tty_file ? fileno(tty_file) : STDOUT_FILENO;
+
+    if(ioctl(fd, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0)
+        return ws.ws_col;
+
+    // Keep the old usual default for fallback
+    return 80;
+}
+
+// Automatically determine the terminal row count.
+static unsigned term_get_rows_auto(void)
+{
+    struct winsize ws;
+    int fd = tty_file ? fileno(tty_file) : STDOUT_FILENO;
+
+    if(ioctl(fd, TIOCGWINSZ, &ws) == 0 && ws.ws_row > 0)
+        return ws.ws_row;
+
+    // Keep the old usual default for fallback
+    return 25;
+}
+
 // Update posx/posy in BIOS memory and CRTC for one page only
 static void update_posxy_page(int page)
 {
@@ -309,6 +335,19 @@ static void vid_set_font(unsigned lines)
     update_posxy();
 }
 
+static void vid_set_cols(unsigned cols)
+{
+    if(cols > 132)
+        cols = 132;
+    else if(cols < 40)
+        cols = 40;
+
+    debug(debug_video, "set %u cols mode\n", cols);
+    vid_sx = cols;
+    memory[0x44A] = vid_sx;
+    update_posxy();
+}
+
 static void vid_set_rows(unsigned rows)
 {
     if(rows > 64)
@@ -356,17 +395,56 @@ void video_init_mem(void)
     // Set video mode 3 and clear screen
     set_text_mode(3, 1);
     // Setup non-standard mode:
-    if(getenv(ENV_ROWS))
+    const char *cols_env = getenv(ENV_COLS);
+    if(cols_env)
     {
-        unsigned rows = atoi(getenv(ENV_ROWS));
-        if(rows >= 12 && rows <= 64)
+        if(!strcmp(cols_env, "auto"))
+        {
+            unsigned cols = term_get_cols_auto();
+            if(cols < 40)
+                cols = 40;
+            else if(cols > 132)
+                cols = 132;
+            debug(debug_video, "auto cols: using %u terminal columns\n", cols);
+            vid_set_cols(cols);
+        }
+        else
+        {
+            unsigned cols = atoi(cols_env);
+            if(cols >= 40 && cols <= 132)
+                vid_set_cols(cols);
+        }
+    }
+    const char *rows_env = getenv(ENV_ROWS);
+    if(rows_env)
+    {
+        if(!strcmp(rows_env, "auto"))
+        {
+            unsigned rows = term_get_rows_auto();
+            if(rows < 12)
+                rows = 12;
+            else if(rows > 50)
+                rows = 50;
+            debug(debug_video, "auto rows: using %u terminal rows\n", rows);
             vid_set_rows(rows);
+        }
+        else
+        {
+            unsigned rows = atoi(rows_env);
+            if(rows >= 12 && rows <= 64)
+                vid_set_rows(rows);
+        }
     }
 }
 
 // Writes a DOS character to the current terminal position
 static void put_vc(uint8_t c)
 {
+    if(codepage_disabled())
+    {
+        putc(c, tty_file);
+        return;
+    }
     uint16_t uc = get_unicode(c);
     if(uc < 128)
         putc(uc, tty_file);

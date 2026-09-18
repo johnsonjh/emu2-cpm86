@@ -107,8 +107,8 @@ NORETURN void print_usage(void)
 "\n"
 "Options (processed before program name):\n"
 "  -h            Show this help.\n"
-"  -f            Run explicitly as a full-screen program (clears the terminal\n"
-"                when entering video mode and disables some scroll heuristics).\n"
+"  -f            Start explicitly as a full-screen direct video program; turns\n"
+"                off some text processing heuristics (same as EMU2_FULLSCREEN).\n"
 "  -b <addr>     Load header-less binary at address.\n"
 "  -r <seg:ip>   Specify a run address to start execution.\n"
 "                (only for binary loaded data)\n"
@@ -133,12 +133,17 @@ NORETURN void print_usage(void)
              "  %-18s  DOS current working directory, use 'C:\\' if not given.\n"
              "  %-18s  Set UNIX path as root of drive 'n', by default all drives\n"
 "                      point to the UNIX working directory.\n"
-             "  %-18s  Set DOS code-page. Set to '?' to show list of code-pages.\n"
+             "  %-18s  Sets the codepage. Set to '?' to show list of codepages,\n"
+"                      or '0' to explictly disable translation (default: CP437).\n"
              "  %-18s  Limit DOS memory to 512KB, fixes some old buggy programs.\n"
              "  %-18s  Specifies DOS APPEND paths, separated by ';'.\n"
              "  %-18s  Set version of DOS to emulate, e.g. '2.11', '3.20', etc.\n"
-             "  %-18s  Setup text mode with given number of rows, from 12 to 50.\n"
-             "  %-18s  Run explicitly as a full-screen program (same as -f).\n"
+             "  %-18s  Setup text mode with given number of rows (12 to 50);\n"
+"                      Use 'auto' for automatic detection (clamped 12 to 50).\n"
+             "  %-18s  Setup text mode with given number of columns (40 to 132);\n"
+"                      Use 'auto' for automatic detection (clamped 40 to 132).\n"
+             "  %-18s  Start explicitly as a full-screen direct video program.\n"
+"                      Turns off some text processing heuristics; same as '-f'.\n"
              "  %-18s  Specifies CP/M-86 APPEND drive letters, separated by ';'.\n"
              "  %-18s  CP/M-86 disk block size: auto|1k|2k|4k|8k|16k (per drive\n"
 "                      with EMU2_CPM_DISK_<letter>).\n"
@@ -151,7 +156,7 @@ NORETURN void print_usage(void)
              "  %-18s  Use ISX last-record byte count convention (unused bytes)\n"
 "                      instead of DOS-Plus (used bytes); default off (DOS-Plus).\n"
              "  %-18s  CP/M-86 console emulation (VT102+DRI); set 0 to disable.\n"
-             "  %-18s  CP/M-86 TPA size in KB; same as -m.\n"
+             "  %-18s  CP/M-86 TPA size in KB; same as '-m'.\n"
              "  %-18s  Fill memory with <byte> before loading (for debugging).\n"
              "  %-18s  Fill memory with 0xFF before loading (for debugging).\n"
              "  %-18s  Count of kbhit calls over EMU2_KBHIT_TIME duration before\n"
@@ -172,6 +177,7 @@ NORETURN void print_usage(void)
            ENV_APPEND,
            ENV_DOSVER,
            ENV_ROWS,
+           ENV_COLS,
            ENV_FULLSCREEN,
            ENV_CPM_APPEND,
            "EMU2_CPM_DISK",
