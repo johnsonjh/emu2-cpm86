@@ -138,7 +138,10 @@ NORETURN void print_usage(void)
              "  %-18s  Limit DOS memory to 512KB, fixes some old buggy programs.\n"
              "  %-18s  Specifies DOS APPEND paths, separated by ';'.\n"
              "  %-18s  Set version of DOS to emulate, e.g. '2.11', '3.20', etc.\n"
-             "  %-18s  Setup text mode with given number of rows, from 12 to 50.\n"
+             "  %-18s  Setup text mode with given number of rows (12 to 50);\n"
+"                      Use 'auto' for automatic detection (clamped 12 to 50).\n"
+             "  %-18s  Setup text mode with given number of columns (40 to 132);\n"
+"                      Use 'auto' for automatic detection (clamped 40 to 132).\n"
              "  %-18s  Start explicitly as a full-screen direct video program.\n"
 "                      Turns off some text processing heuristics; same as '-f'.\n"
              "  %-18s  Specifies CP/M-86 APPEND drive letters, separated by ';'.\n"
@@ -174,6 +177,7 @@ NORETURN void print_usage(void)
            ENV_APPEND,
            ENV_DOSVER,
            ENV_ROWS,
+           ENV_COLS,
            ENV_FULLSCREEN,
            ENV_CPM_APPEND,
            "EMU2_CPM_DISK",
