@@ -8,3 +8,4 @@ obj/
 .test.exe
 .test.out
 tests/**/*.log
+/*.diff
