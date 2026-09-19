@@ -1,4 +1,3 @@
-
 // DOS file names to UNIX file names conversions
 
 #ifndef DOSNAMES_H

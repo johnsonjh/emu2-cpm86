@@ -1,7 +1,6 @@
 #ifndef OS_H_INCLUDED
 #define OS_H_INCLUDED
 
-
 /* Detect proper "does not return" annotation */
 #if !defined(NORETURN)
 # if defined(__STDC_VERSION__)
