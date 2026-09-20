@@ -1,4 +1,5 @@
-#pragma once
+#if !defined(INCLUDE_CPM86_H)
+# define INCLUDE_CPM86_H
 // Native CP/M-86 support for emu2: .CMD loader + BDOS (INT 0E0h) dispatcher.
 //
 // CP/M-86 programs are loaded from .CMD files (a header of group descriptors
@@ -6,7 +7,7 @@
 // through INT 0E0h with the function number in CL.  This lets emu2 run .cmd
 // programs directly, without the cpm86.exe DOS shim.
 
-#include <stdio.h>
+# include <stdio.h>
 
 // Returns non-zero if (f, name) looks like a CP/M-86 .CMD program.  Rewinds f.
 int cpm86_detect(FILE *f, const char *name);
@@ -36,3 +37,4 @@ extern int cpm86_dirty_cli;
 // INT 28h handler for CP/M-86 programs: a keyboard-poll interface (DI=4) used by
 // some interpreters (e.g. ZORK).  Invoked from bios_routine() when cpm86_active.
 void intr_cpm_int28(void);
+#endif

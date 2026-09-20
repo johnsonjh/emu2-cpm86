@@ -1,9 +1,7 @@
+#if !defined (INCLUDE_DOSNAMES_H)
+# define INCLUDE_DOSNAMES_H
 // DOS file names to UNIX file names conversions
-
-#ifndef DOSNAMES_H
-#define DOSNAMES_H
-
-#include <stdint.h>
+# include <stdint.h>
 
 // Converts a DOS full path to equivalent UNIX filename
 // If the file exists, returns the name of the file.
@@ -55,4 +53,4 @@ void dos_free_file_list(struct dos_file_list *dl);
 // Normalizes DOS path, removing relative items and adding base
 // Modifies the passed string and returns the drive as integer.
 int dos_path_normalize(char *path, unsigned max);
-#endif // DOSNAMES_H
+#endif

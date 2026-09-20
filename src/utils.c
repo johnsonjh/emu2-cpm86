@@ -4,16 +4,16 @@
 #include <unistd.h>
 
 #ifdef __APPLE__
-#include <mach-o/dyld.h>
+# include <mach-o/dyld.h>
 #endif
 
 #ifdef __HAIKU__
-#include <OS.h>
-#include <FindDirectory.h>
+# include <OS.h>
+# include <FindDirectory.h>
 #endif
 
 #ifdef __FreeBSD__
-#include <sys/sysctl.h>
+# include <sys/sysctl.h>
 #endif
 
 #if defined(__GNU__) && !defined(__linux__) && !defined(__HAIKU__)

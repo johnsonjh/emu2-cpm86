@@ -1,5 +1,5 @@
-#pragma once
-
+#if !defined(INCLUDE_CPM86_CONSOLE_H)
+# define INCLUDE_CPM86_CONSOLE_H
 // DOS-PLUS (CP/M-86 4.1) console emulation for native CP/M-86 programs.
 //
 // DOS-PLUS presented its console as a small terminal that understood VT52 cursor
@@ -15,3 +15,4 @@
 // sequence, or 0 when it is an ordinary character the caller should print itself.
 // Disabled with EMU2_CPM_VT52=0.
 int cpm_console_putch(char ch);
+#endif

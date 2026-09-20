@@ -1,6 +1,6 @@
-#pragma once
-
-#include <stdint.h>
+#if !defined(INCLUDE_VIDEO_H)
+# define INCLUDE_VIDEO_H
+# include <stdint.h>
 
 void intr10(void);
 // Redraws terminal screen
@@ -27,3 +27,4 @@ void video_reverse_lf(void);   // cursor up one line, scrolling down at the top
 uint8_t video_get_attr(void);  // current text attribute (PC colour byte)
 void video_set_attr(uint8_t attr);
 void video_clear_screen(void); // blank the whole screen and home the cursor
+#endif

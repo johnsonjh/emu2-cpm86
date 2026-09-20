@@ -1,9 +1,8 @@
-#ifndef EMU_H
-#define EMU_H
-
-#include <stdint.h>
-#include <stdio.h>
-#include <string.h>
+#if !defined(INCLUDE_EMU_H)
+# define INCLUDE_EMU_H
+# include <stdint.h>
+# include <stdio.h>
+# include <string.h>
 
 extern volatile int exit_cpu;
 extern uint8_t memory[];
@@ -161,5 +160,4 @@ static inline char *getstr(uint32_t addr, unsigned size)
         memcpy(buf[cbuf], memory + addr, size);
     return buf[cbuf];
 }
-
-#endif // EMU_H
+#endif

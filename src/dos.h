@@ -1,9 +1,9 @@
-#pragma once
+#if !defined(INCLUDE_DOS_H)
+# define INCLUDE_DOS_H
+# include "os.h"
 
-#include "os.h"
-
-#include <stdint.h>
-#include <stdio.h>
+# include <stdint.h>
+# include <stdio.h>
 
 void init_dos(int argc, char **argv);
 int dos_chmod_fcb(int fcb_addr, int make_readonly);
@@ -19,3 +19,4 @@ void intr2f(void);
 NORETURN void intr22(void);
 void intr28(void);
 void intr29(void);
+#endif
