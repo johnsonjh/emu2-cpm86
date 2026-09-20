@@ -475,7 +475,9 @@ static void do_retf(void)
 static void trap_1(void)
 {
     next_instruction();
-    interrupt(1);
+    // INT/IRET/POPF clear TF as they execute; the 8086 suppresses the trap then.
+    if(TF)
+        interrupt(1);
 }
 
 static void do_popf(void)
