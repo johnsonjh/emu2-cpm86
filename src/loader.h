@@ -1,7 +1,7 @@
-#pragma once
-
-#include <stdint.h>
-#include <stdio.h>
+#if !defined(INCLUDE_LOADER_H)
+# define INCLUDE_LOADER_H
+# include <stdint.h>
+# include <stdio.h>
 
 // EXE loader
 uint16_t create_PSP(const char *cmdline, const char *environment, uint16_t env_size,
@@ -27,3 +27,4 @@ void mem_poison_free(uint8_t val);
 // Loaders
 int dos_load_exe(FILE *f, uint16_t psp_mcb);
 int dos_read_overlay(FILE *f, uint16_t load_seg, uint16_t reloc_seg);
+#endif

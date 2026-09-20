@@ -1,5 +1,6 @@
-#pragma once
-#include <stdint.h>
+#if !defined(INCLUDE_KEYB_H)
+# define INCLUDE_KEYB_H
+# include <stdint.h>
 
 void keyb_set_script_newline_delay(int ms);
 void keyb_set_script_initial_delay(int ms);
@@ -15,3 +16,4 @@ void suspend_keyboard(void);
 // Disable throttling the next keyboard calls
 void keyb_wakeup(void);
 void keyb_handle_irq(void);
+#endif

@@ -1,4 +1,3 @@
-
 #include "timer.h"
 #include "dbg.h"
 #include "emu.h"
@@ -38,8 +37,15 @@ void update_timer(void)
     }
 
     long cnt = time_to_bios(tv) - start_timer;
-    bios_timer = cnt % 0x1800B0;
-    bios_dater = (cnt / 0x1800B0) & 0xFF;
+    long day_ticks = cnt % 0x1800B0;
+    long days = cnt / 0x1800B0;
+    if(day_ticks < 0)
+    {
+        day_ticks += 0x1800B0;
+        days -= 1;
+    }
+    bios_timer = (uint32_t)day_ticks;
+    bios_dater = (uint16_t)(days & 0xFF);
     put32(0x46C, bios_timer);
     memory[0x470] = bios_dater;
 }
@@ -49,7 +55,7 @@ static void set_timer(unsigned x)
 {
     struct timeval tv;
     gettimeofday(&tv, 0);
-    start_timer = time_to_bios(tv) + x;
+    start_timer = time_to_bios(tv) - x;
     update_timer();
 }
 
@@ -266,10 +272,21 @@ void intr1A(void)
     }
     case 1: // SET SYSTEM TIME
     {
+#ifndef LITERAL_SET_TIME_READING
+# define LITERAL_SET_TIME_READING 1
+#endif
+#if LITERAL_SET_TIME_READING
         unsigned t = cpuGetDX() + (cpuGetCX() << 16);
+#else
+	unsigned t = 0;
+#endif
         set_timer(t);
+#if LITERAL_SET_TIME_READING
         debug(debug_int, "SET TIME: %02x:%04x:%04x\n", cpuGetAX(), cpuGetCX(),
               cpuGetDX());
+#else
+        debug(debug_int, "SET TIME: 0\n");
+#endif
         break;
     }
     case 2: // GET RTC TIME

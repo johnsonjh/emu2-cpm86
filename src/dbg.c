@@ -10,8 +10,8 @@
 
 char *prog_name;
 
-# define TRIM_BUFSIZE 256
-# define TRIM_RING 3 /* max reentrancy depth, use calls + 1 */
+#define TRIM_BUFSIZE 256
+#define TRIM_RING 3 /* max reentrancy depth, use calls + 1 */
 
 static char *
 sqz_str(const char * const s)

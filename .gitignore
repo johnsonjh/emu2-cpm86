@@ -1,11 +1,14 @@
 a.out
+/compile_commands.json
 *.core
 core
 core-*
+/*.diff
 emu2
+log.pvs
 obj/
+pvsreport
 .test.c
 .test.exe
 .test.out
 tests/**/*.log
-/*.diff

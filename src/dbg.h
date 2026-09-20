@@ -1,8 +1,8 @@
-#pragma once
+#if !defined(INCLUDE_DBG_H)
+# define INCLUDE_DBG_H
+# include "os.h"
 
-#include "os.h"
-
-#include <stdio.h>
+# include <stdio.h>
 
 extern char *prog_name;
 
@@ -24,3 +24,4 @@ enum debug_type
 void init_debug(const char *name);
 void debug(enum debug_type, PRINTF_FORMAT const char *format, ...) PRINTF_FORMAT_ATTR(2, 3);
 int debug_active(enum debug_type);
+#endif

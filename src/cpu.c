@@ -145,11 +145,11 @@ static void PushWord(uint16_t w)
 }
 
 #ifdef CPU_PUSH_80286
-#define PUSH_SP()                                                              \
+# define PUSH_SP()                                                             \
     PushWord(wregs[SP]);                                                       \
     break;
 #else
-#define PUSH_SP()                                                              \
+# define PUSH_SP()                                                             \
     PushWord(wregs[SP] - 2);                                                   \
     break;
 #endif
@@ -475,6 +475,7 @@ static void do_retf(void)
 static void trap_1(void)
 {
     next_instruction();
+    // INT/IRET/POPF clear TF as they execute; the 8086 suppresses the trap then.
     if(TF)
         interrupt(1);
 }
