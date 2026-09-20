@@ -15,6 +15,8 @@ void set_current_PSP(uint16_t psp_seg);
 uint16_t mem_resize_segment(uint16_t seg, uint16_t size);
 void mem_free_segment(uint16_t seg);
 uint16_t mem_alloc_segment(uint16_t size, uint16_t *max);
+// Release every block owned by a PSP, as DOS does when a process terminates.
+void mem_free_owner(uint16_t psp_seg);
 uint8_t mem_get_alloc_strategy(void);
 void mem_set_alloc_strategy(uint8_t s);
 
@@ -25,5 +27,9 @@ void mcb_init(uint16_t mem_start, uint16_t mem_end);
 void mem_poison_free(uint8_t val);
 
 // Loaders
-int dos_load_exe(FILE *f, uint16_t psp_mcb);
+// If activate is false, the loaded program's registers are only written to
+// *out_ss/*out_sp/*out_cs/*out_ip (when non-NULL) instead of the live CPU,
+// so the caller (e.g. INT 21/4B AL=1) is not disturbed.
+int dos_load_exe(FILE *f, uint16_t psp_mcb, int activate, uint16_t *out_ss,
+                 uint16_t *out_sp, uint16_t *out_cs, uint16_t *out_ip);
 int dos_read_overlay(FILE *f, uint16_t load_seg, uint16_t reloc_seg);

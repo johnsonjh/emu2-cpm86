@@ -600,6 +600,25 @@ uint16_t mem_alloc_segment(uint16_t size, uint16_t *max)
         return 0;
 }
 
+void mem_free_owner(uint16_t psp_seg)
+{
+    uint16_t mcb = mcb_start;
+    while(1)
+    {
+        int last = mcb_is_last(mcb);
+        if(mcb_ok(mcb) && mcb_owner(mcb) == psp_seg)
+        {
+            debug(debug_dos, "\tfree mcb:$%04X owned by PSP:$%04X\n", mcb, psp_seg);
+            mcb_free(mcb);
+            // mcb_free() may have absorbed the block that ended the chain.
+            last = mcb_is_last(mcb);
+        }
+        if(last)
+            break;
+        mcb = mcb_next(mcb);
+    }
+}
+
 /* The PSP block is before the loaded program:
 
 Offset  Length  Description
@@ -785,7 +804,8 @@ int dos_read_overlay(FILE *f, uint16_t load_seg, uint16_t reloc_seg)
     return 0;
 }
 
-int dos_load_exe(FILE *f, uint16_t psp_mcb)
+int dos_load_exe(FILE *f, uint16_t psp_mcb, int activate, uint16_t *out_ss,
+                 uint16_t *out_sp, uint16_t *out_cs, uint16_t *out_ip)
 {
     // First, read exe header
     uint8_t buf[32];
@@ -810,19 +830,32 @@ int dos_load_exe(FILE *f, uint16_t psp_mcb)
         // Fill top program address in PSP
         put16(psp_mcb * 16 + 16 + 2, psp_mcb + mcb_size(psp_mcb) + 1);
 
-        cpuSetIP(0x100);
-        cpuSetCS(psp_mcb + 1);
-        cpuSetDS(psp_mcb + 1);
-        cpuSetES(psp_mcb + 1);
-        cpuSetSP(0xFFFE);
-        cpuSetSS(psp_mcb + 1);
-        cpuSetAX(0);
-        cpuSetBX(0);
-        cpuSetCX(0x00FF);
-        cpuSetDX(psp_mcb + 1);
-        cpuSetBP(0x91C); // From real DOS-5 and DOSBOX.
-        cpuSetSI(cpuGetIP());
-        cpuSetDI(cpuGetSP());
+        uint16_t seg = psp_mcb + 1;
+        uint16_t ip = 0x100, cs = seg, ss = seg, sp = 0xFFFE;
+        if(activate)
+        {
+            cpuSetIP(ip);
+            cpuSetCS(cs);
+            cpuSetDS(seg);
+            cpuSetES(seg);
+            cpuSetSP(sp);
+            cpuSetSS(ss);
+            cpuSetAX(0);
+            cpuSetBX(0);
+            cpuSetCX(0x00FF);
+            cpuSetDX(seg);
+            cpuSetBP(0x91C); // From real DOS-5 and DOSBOX.
+            cpuSetSI(cpuGetIP());
+            cpuSetDI(cpuGetSP());
+        }
+        if(out_ss)
+            *out_ss = ss;
+        if(out_sp)
+            *out_sp = sp;
+        if(out_cs)
+            *out_cs = cs;
+        if(out_ip)
+            *out_ip = ip;
 
         return 1;
     }
@@ -883,19 +916,34 @@ int dos_load_exe(FILE *f, uint16_t psp_mcb)
     debug(debug_dos, "\tEXE start:    $%04X\n", start >> 4);
 
     // Get segment values
-    cpuSetSS((load_seg + g16(buf + 14)) & 0xFFFF);
-    cpuSetSP(g16(buf + 16));
-    cpuSetCS((load_seg + g16(buf + 22)) & 0xFFFF);
-    cpuSetIP(g16(buf + 20));
-    cpuSetDS(psp_mcb + 1);
-    cpuSetES(psp_mcb + 1);
-    cpuSetAX(0);
-    cpuSetBX(0);
-    cpuSetCX(0x7309);
-    cpuSetDX(psp_mcb + 1);
-    cpuSetBP(0x91C); // From real DOS-5 and DOSBOX.
-    cpuSetSI(cpuGetIP());
-    cpuSetDI(cpuGetSP());
+    uint16_t ss = (load_seg + g16(buf + 14)) & 0xFFFF;
+    uint16_t sp = g16(buf + 16);
+    uint16_t cs = (load_seg + g16(buf + 22)) & 0xFFFF;
+    uint16_t ip = g16(buf + 20);
+    if(activate)
+    {
+        cpuSetSS(ss);
+        cpuSetSP(sp);
+        cpuSetCS(cs);
+        cpuSetIP(ip);
+        cpuSetDS(psp_mcb + 1);
+        cpuSetES(psp_mcb + 1);
+        cpuSetAX(0);
+        cpuSetBX(0);
+        cpuSetCX(0x7309);
+        cpuSetDX(psp_mcb + 1);
+        cpuSetBP(0x91C); // From real DOS-5 and DOSBOX.
+        cpuSetSI(cpuGetIP());
+        cpuSetDI(cpuGetSP());
+    }
+    if(out_ss)
+        *out_ss = ss;
+    if(out_sp)
+        *out_sp = sp;
+    if(out_cs)
+        *out_cs = cs;
+    if(out_ip)
+        *out_ip = ip;
 
     unsigned reloc_off = g16(buf + 24);
     int nreloc = g16(buf + 6);

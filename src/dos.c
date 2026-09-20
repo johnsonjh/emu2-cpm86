@@ -1413,6 +1413,112 @@ static void tmp_name_suffix(char *buf, int n)
         buf[i] = alphabet[rand() % (sizeof(alphabet) - 1)];
 }
 
+// DOS int 21, ah=4B, al=3: load overlay into caller-provided memory.
+static void dos_pexec(const char *fname, int pb)
+{
+    debug(debug_dos, "\tload overlay '%s'\n", fname);
+    uint16_t load_seg = get16(pb);
+    uint16_t reloc_seg = get16(pb + 2);
+    FILE *f = fopen(fname, "rb");
+    int err = !f || dos_read_overlay(f, load_seg, reloc_seg);
+    if(f)
+        fclose(f); // the overlay is fully read into memory, nothing keeps the handle
+    if(err)
+    {
+        debug(debug_dos, "\tERROR\n");
+        dos_error = 11;
+        cpuSetAX(dos_error);
+        cpuSetFlag(cpuFlag_CF);
+    }
+    else
+    {
+        dos_error = 0;
+        cpuClrFlag(cpuFlag_CF);
+    }
+}
+
+// DOS int 21, ah=4B, al=1: load a program into memory without executing it,
+// returning its initial SS:SP/CS:IP in the parameter block (used by
+// debuggers such as DEBUG.COM, which then single-steps/breakpoints it).
+static void dos_pload(const char *fname, int pb)
+{
+    debug(debug_dos, "\tload (no exec): '%s'\n", fname);
+    char *prgname = getstr(cpuGetAddrDS(cpuGetDX()), 64);
+    int cmd_addr = cpuGetAddress(get16(pb + 4), get16(pb + 2));
+    int clen = memory[cmd_addr];
+    char *cmdline = getstr(cmd_addr + 1, clen);
+    debug(debug_dos, "\tload command line: '%s %.*s'\n", prgname, clen, cmdline);
+
+    // Resolve the environment block, tracking its byte length (including the
+    // sentinel double-NUL) since create_PSP() needs an explicit size.
+    char *env = "\0\0";
+    uint16_t env_size = 2;
+    uint16_t env_seg = get16(pb);
+    if(!env_seg)
+        env_seg = get16(cpuGetAddress(get_current_PSP(), 0x2C));
+    if(env_seg != 0)
+    {
+        int start_addr = cpuGetAddress(env_seg, 0);
+        int eaddr = start_addr;
+        while(memory[eaddr] != 0 && eaddr < 0xFFFFF)
+        {
+            while(memory[eaddr] != 0 && eaddr < 0xFFFFF)
+                eaddr++;
+            eaddr++;
+        }
+        if(eaddr < 0xFFFFF)
+        {
+            env = (char *)(memory + start_addr);
+            env_size = eaddr - start_addr + 1;
+        }
+    }
+
+    // Save before create_PSP(), which switches current_PSP as a side effect.
+    unsigned old_psp = get_current_PSP();
+    uint16_t psp_mcb = create_PSP(cmdline, env, env_size, prgname);
+    if(!psp_mcb)
+    {
+        debug(debug_dos, "\tnot enough memory for new PSP\n");
+        dos_error = 8;
+        cpuSetAX(dos_error);
+        cpuSetFlag(cpuFlag_CF);
+        return;
+    }
+
+    // Patch the parent link so INT 21/4C can later return control to us.
+    uint8_t *new_psp = memory + (psp_mcb + 1) * 16;
+    new_psp[22] = old_psp & 0xFF;
+    new_psp[23] = old_psp >> 8;
+
+    FILE *f = fopen(fname, "rb");
+    uint16_t ss = 0, sp = 0, cs = 0, ip = 0;
+    int ok = f && dos_load_exe(f, psp_mcb, 0, &ss, &sp, &cs, &ip);
+    if(f)
+        fclose(f);
+
+    if(!ok)
+    {
+        debug(debug_dos, "\tERROR loading '%s'\n", fname);
+        uint16_t env_seg_alloc = get16((psp_mcb + 1) * 16 + 0x2C);
+        mem_free_segment(psp_mcb + 1);
+        mem_free_segment(env_seg_alloc);
+        set_current_PSP(old_psp);
+        dos_error = 11;
+        cpuSetAX(dos_error);
+        cpuSetFlag(cpuFlag_CF);
+        return;
+    }
+
+    put16(pb + 0x0E, sp);
+    put16(pb + 0x10, ss);
+    put16(pb + 0x12, ip);
+    put16(pb + 0x14, cs);
+    debug(debug_dos, "\tloaded PSP=%04x CS:IP=%04x:%04x SS:SP=%04x:%04x\n",
+          psp_mcb + 1, cs, ip, ss, sp);
+    dos_error = 0;
+    cpuClrFlag(cpuFlag_CF);
+}
+
 // DOS int 21
 void intr21(void)
 {
@@ -2333,33 +2439,15 @@ void intr21(void)
         }
         // Flags:   0 = Load and Go, 1 = LOAD, 3 = Overlay
         //        128 = LoadHi
+        int pb = cpuGetAddrES(cpuGetBX());
         if((ax & 0xFF) == 3)
-        {
-            debug(debug_dos, "\tload overlay '%s'\n", fname);
-            int pb = cpuGetAddrES(cpuGetBX());
-            uint16_t load_seg = get16(pb);
-            uint16_t reloc_seg = get16(pb + 2);
-            FILE *f = fopen(fname, "rb");
-            if(!f || dos_read_overlay(f, load_seg, reloc_seg))
-            {
-                debug(debug_dos, "\tERROR\n");
-                dos_error = 11;
-                cpuSetAX(dos_error);
-                cpuSetFlag(cpuFlag_CF);
-            }
-            else
-            {
-                dos_error = 0;
-                cpuClrFlag(cpuFlag_CF);
-            }
-        }
+            dos_pexec(fname, pb);
         else if((ax & 0xFF) == 0)
         {
             debug(debug_dos, "\texec: '%s'\n", fname);
             // Get executable file name:
             char *prgname = getstr(cpuGetAddrDS(cpuGetDX()), 64);
             // Read command line parameters:
-            int pb = cpuGetAddrES(cpuGetBX());
             int cmd_addr = cpuGetAddress(get16(pb + 4), get16(pb + 2));
             int clen = memory[cmd_addr];
             char *cmdline = getstr(cmd_addr + 1, clen);
@@ -2393,6 +2481,8 @@ void intr21(void)
                 cpuClrFlag(cpuFlag_CF);
             }
         }
+        else if((ax & 0xFF) == 1)
+            dos_pload(fname, pb);
         else
         {
             debug(debug_dos, "\texec '%s': type %02xh not supported.\n", fname,
@@ -2413,8 +2503,7 @@ void intr21(void)
         else
         {
             // Exit to parent
-            // TODO: we must close all child file descriptors and deallocate
-            //       child memory.
+            // TODO: we must close all child file descriptors.
             return_code = cpuGetAX() & 0xFF;
             // Patch INT 22h, 23h and 24h addresses to the ones saved in new PSP
             put16(0x88, get16(cpuGetAddress(get_current_PSP(), 10)));
@@ -2424,7 +2513,9 @@ void intr21(void)
             put16(0x90, get16(cpuGetAddress(get_current_PSP(), 18)));
             put16(0x92, get16(cpuGetAddress(get_current_PSP(), 20)));
             // Set PSP to parent
-            set_current_PSP(get16(cpuGetAddress(get_current_PSP(), 22)));
+            uint16_t child_psp = get_current_PSP();
+            set_current_PSP(get16(cpuGetAddress(child_psp, 22)));
+            mem_free_owner(child_psp);
             // Get last stack
             cpuSetSS(get16(cpuGetAddress(get_current_PSP(), 0x30)));
             cpuSetSP(get16(cpuGetAddress(get_current_PSP(), 0x2E)));
@@ -3149,7 +3240,7 @@ void init_dos(int argc, char **argv)
         if(!cpm86_load_cmd(f, args))
             print_error("error loading CP/M-86 CMD file.\n");
     }
-    else if(!dos_load_exe(f, psp_mcb))
+    else if(!dos_load_exe(f, psp_mcb, 1, NULL, NULL, NULL, NULL))
         print_error("error loading EXE/COM file.\n");
     fclose(f);
 
