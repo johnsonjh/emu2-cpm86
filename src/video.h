@@ -16,6 +16,8 @@ uint8_t video_crtc_read(int port);
 void video_crtc_write(int port, uint8_t value);
 // Initializes emulated video memory and tables
 void video_init_mem(void);
+// resynchronize terminal display
+void video_resync_terminal(void);
 
 // Text-screen cursor/erase access used by the VT52 console layer (cpm86_vt52.c):
 void video_get_cursor(unsigned *x, unsigned *y); // cursor position (active page)

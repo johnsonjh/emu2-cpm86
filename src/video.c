@@ -514,8 +514,8 @@ static void put_vc_xy(uint8_t vc, uint8_t color, unsigned x, unsigned y)
 
     put_vc(vc);
     term_posx++;
-    if(term_posx > term_sx)
-        term_posx = term_sx;
+    if(term_posx >= term_sx)
+        term_posx = term_sx - 1;
 
     if(output_row < (int)term_posy)
         output_row = term_posy;
@@ -854,6 +854,24 @@ void video_set_attr(uint8_t attr)
     if(!video_initialized)
         init_video();
     vid_color = attr;
+}
+
+// Force terminal to be fully redrawn
+void video_resync_terminal(void)
+{
+    if(!video_initialized)
+        return;
+    // VT100: Reset, Clear, Home
+    fputs("\x1b[0m\x1b[2J\x1b[H",
+          tty_file);
+    fflush(tty_file);
+    output_row = -1;
+    term_posx = 0;
+    term_posy = 0;
+    term_color = 0x07;
+    for(unsigned y = 0; y < 64; y++)
+        for(unsigned x = 0; x < 256; x++)
+            term_screen[y][x].value = 0xFFFF;
 }
 
 void video_clear_screen(void)

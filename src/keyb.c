@@ -4,6 +4,7 @@
 #include "emu.h"
 #include "os.h"
 #include "env.h"
+#include "video.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -622,6 +623,8 @@ static void set_raw_term(int raw)
         newattr.c_cc[VMIN] = 0;
         newattr.c_cc[VTIME] = 0;
         tcsetattr(tty_fd, TCSANOW, &newattr);
+        if(video_active())
+            video_resync_terminal();
     }
     else
         tcsetattr(tty_fd, TCSANOW, &oldattr);
