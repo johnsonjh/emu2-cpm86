@@ -1258,6 +1258,107 @@ static int cpm_chain(void)
     return 1;
 }
 
+// BDOS 59 (P_LOAD, "Load Program"): load the program named by the FCB at DS:DX
+// without transferring control to it, reusing the current PSP.  Used by CCP
+// implementations that want to load a transient and call it themselves (the CCP
+// stays resident and loops back after the callf returns).  The CCP is
+// responsible for writing the command tail and default FCBs into the transient's
+// base page after pload returns (see TRNCMO in ccpnew.a86).  Returns 1 with
+// BX = the transient's base-page segment if loaded, 0 if the program was not
+// found or could not load (caller then does bdos_ret(0xFF)).
+//
+// A key limitation of the CP/M-86 API is that there is no way to deallocate from 
+// within the process the memory allocated to the load by the process
+// in the case of cp/m-86, the memory will be deallocated with a freeall when the 
+// parent process goes away.
+// to be able to have a proper multi process behaviour, the CP/M-86 API would need
+// to include explicit memory management calls for loaded transients, which it does not.
+// right now it behaves as intended by CP/M-86
+static int cpm_pload(void)
+{
+    // Parse prog[] from FCB at DS:DX (name bytes 1-8, ext bytes 9-11).
+    // The CCP has already parsed the command line into the FCB before calling
+    // pload; the FCB is the authoritative filename source.
+    uint32_t fcb = cpuGetAddrDS(cpuGetDX());
+    char prog[64];
+    unsigned pn = 0;
+    for(int i = 0; i < 8; i++)
+    {
+        uint8_t c = memory[(fcb + 1 + i) & 0xFFFFF] & 0x7F;
+        if(c == ' ') break;
+        prog[pn++] = (char)c;
+    }
+    prog[pn++] = '.';
+    for(int i = 0; i < 3; i++)
+    {
+        uint8_t c = memory[(fcb + 9 + i) & 0xFFFFF] & 0x7F;
+        if(c == ' ') break;
+        prog[pn++] = (char)c;
+    }
+    prog[pn] = 0;
+    debug(debug_dos, "CP/M BDOS 59 (pload): prog=\"%s\"\n", prog);
+    if(pn == 0)
+        return 0;
+
+    // The CCP writes the command tail into the transient's bp:0x80 after return.
+    const char *tail = "";
+
+    // Open <prog> then <prog>.CMD from the current host drive.
+    FILE *f = fopen(prog, "rb");
+    if(!f)
+    {
+        char withext[70];
+        snprintf(withext, sizeof(withext), "%s.CMD", prog);
+        f = fopen(withext, "rb");
+    }
+    if(!f)
+    {
+        debug(debug_dos, "CP/M pload: program \"%s\" not found\n", prog);
+        return 0;
+    }
+
+    // Save the caller's CPU registers and segment globals before cpm86_load_cmd
+    // overwrites them.  Unlike chain, the caller (CCP) is still running, so:
+    // - do NOT free its memory; zero the globals so cpm86_load_cmd allocates
+    //   fresh segments for the transient without touching the CCP.
+    // - DS/SS/SP must be restored so the iret in intr_cpm_bdos pops the correct
+    //   frame from the CCP's stack.
+    // - cpm_wboot_seg must be restored: cpm86_load_cmd arms it to the transient's
+    //   code seg for 8080-model programs; if left set it fires the warm-boot trap
+    //   the instant the CCP does its callf to transient entry at CS:0.
+    uint16_t sv_ds = cpuGetDS(), sv_ss = cpuGetSS(), sv_sp = cpuGetSP();
+    uint16_t sv_code  = cpm_code_seg,  sv_data  = cpm_data_seg;
+    uint16_t sv_base  = cpm_base_seg,  sv_extra = cpm_extra_seg;
+    uint16_t sv_stack = cpm_stack_seg, sv_wboot = cpm_wboot_seg;
+    cpm_code_seg = cpm_data_seg = cpm_base_seg = cpm_extra_seg = cpm_stack_seg = 0;
+
+    int ok = cpm86_load_cmd(f, tail);
+    fclose(f);
+    if(!ok)
+    {
+        debug(debug_dos, "CP/M pload: failed to load \"%s\"\n", prog);
+        cpm_code_seg  = sv_code;  cpm_data_seg  = sv_data;
+        cpm_base_seg  = sv_base;  cpm_extra_seg = sv_extra;
+        cpm_stack_seg = sv_stack; cpm_wboot_seg = sv_wboot;
+        cpuSetDS(sv_ds); cpuSetSS(sv_ss); cpuSetSP(sv_sp);
+        return 0;
+    }
+
+    // cpm86_load_cmd succeeded: cpm_base_seg now holds the transient's base page.
+    uint16_t new_base = cpm_base_seg;
+
+    // Restore the caller's segment globals and CPU registers.
+    cpm_code_seg  = sv_code;  cpm_data_seg  = sv_data;
+    cpm_base_seg  = sv_base;  cpm_extra_seg = sv_extra;
+    cpm_stack_seg = sv_stack; cpm_wboot_seg = sv_wboot;
+    cpuSetDS(sv_ds); cpuSetSS(sv_ss); cpuSetSP(sv_sp);
+
+    // Return BX = new base-page segment, AL = 0.
+    cpuSetBX(new_base);
+    cpuSetAX(0);
+    return 1;
+}
+
 void intr_cpm_bdos(void)
 {
     unsigned func = cpuGetCX() & 0xFF;
@@ -1648,7 +1749,12 @@ void intr_cpm_bdos(void)
             exit(0);
         break;
 
-    default:
+    case 59: // P_LOAD: Load Program (returns base-page segment in BX)
+        if(!cpm_pload())
+            bdos_ret(0xFF);
+        break;
+
+     default:
         debug(debug_dos, "CP/M BDOS %u: UNIMPLEMENTED (DX=%04x)\n", func, dx);
         bdos_ret(0xFF); // 0xFF = error / not found for most file funcs
         break;
