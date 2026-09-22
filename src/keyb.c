@@ -4,6 +4,7 @@
 #include "emu.h"
 #include "os.h"
 #include "env.h"
+#include "video.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -80,7 +81,7 @@ static uint8_t special_codes[23][4] = {
     {0x4D, 0x4D, 0x74, 0x9D}, // Right
     {0x49, 0x49, 0x84, 0x99}, // Pg-Up
     {0x51, 0x51, 0x76, 0xA1}, // Pg-Down
-    {0x57, 0x57, 0x77, 0x97}, // Home
+    {0x47, 0x47, 0x77, 0x97}, // Home
     {0x4F, 0x4F, 0x75, 0x9F}, // End
     {0x52, 0x52, 0x92, 0xA2}, // Ins
     {0x53, 0x53, 0x93, 0xA3}, // Del
@@ -622,6 +623,8 @@ static void set_raw_term(int raw)
         newattr.c_cc[VMIN] = 0;
         newattr.c_cc[VTIME] = 0;
         tcsetattr(tty_fd, TCSANOW, &newattr);
+        if(video_active())
+            video_resync_terminal();
     }
     else
         tcsetattr(tty_fd, TCSANOW, &oldattr);

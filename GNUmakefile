@@ -68,7 +68,7 @@ dos.o: src/dos.c src/dos.h src/os.h src/codepage.h src/cpm86.h \
 dosnames.o: src/dosnames.c src/dosnames.h src/cpm86.h src/dbg.h src/os.h \
  src/emu.h src/env.h
 keyb.o: src/keyb.c src/keyb.h src/codepage.h src/dbg.h src/os.h src/emu.h \
- src/env.h
+ src/env.h src/video.h
 loader.o: src/loader.c src/loader.h src/dbg.h src/os.h src/emu.h
 main.o: src/main.c src/cpm86.h src/dbg.h src/os.h src/dos.h \
  src/dosnames.h src/emu.h src/env.h src/keyb.h src/timer.h src/video.h
