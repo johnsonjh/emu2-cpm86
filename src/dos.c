@@ -1519,6 +1519,20 @@ static void dos_pload(const char *fname, int pb)
     cpuClrFlag(cpuFlag_CF);
 }
 
+// DOS takes the terminate / ctrl-break / critical-error addresses stored in a
+// freshly built PSP from the *current* interrupt vectors, not from the parent
+// PSP being copied.  Some Debuggers (MSDebug 4.0 in particular) hook INT 22h before creating
+// the debuggee's PSP and rely on this to regain control when it terminates.
+static void psp_save_vectors(uint16_t psp_seg)
+{
+    int psp = cpuGetAddress(psp_seg, 0);
+    for(int i = 0; i < 3; i++)
+    {
+        put16(psp + 0x0A + 4 * i, get16(4 * (0x22 + i)));
+        put16(psp + 0x0C + 4 * i, get16(4 * (0x22 + i) + 2));
+    }
+}
+
 // DOS int 21
 void intr21(void)
 {
@@ -1884,6 +1898,7 @@ void intr21(void)
         }
         // Copy entire PSP (256 bytes) to new segment, including command tail at 0x80..0xFF
         memcpy(new_psp, orig_psp, 0x100);
+        psp_save_vectors(cpuGetDX());
         break;
     }
     case 0x27: // BLOCK READ FROM FCB
@@ -2587,6 +2602,7 @@ void intr21(void)
         }
         // Copy entire PSP (256 bytes) to new segment, including command tail at 0x80..0xFF
         memcpy(new_psp, orig_psp, 0x100);
+        psp_save_vectors(cpuGetDX());
         // Set parent PSP to the current one
         new_psp[22] = get_current_PSP() & 0xFF;
         new_psp[23] = get_current_PSP() >> 8;
