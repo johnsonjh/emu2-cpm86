@@ -1509,6 +1509,13 @@ static void dos_pload(const char *fname, int pb)
         return;
     }
 
+    // DOS pushes the AX the program would have been started with (the FCB
+    // drive-validity flags) onto the child's stack and returns SP pointing at
+    // it; DEBUG.COM pops it back off into the child's AX.  Without this the
+    // caller starts the child two bytes above its real stack top.
+    sp -= 2;
+    put16(cpuGetAddress(ss, sp), 0);
+
     put16(pb + 0x0E, sp);
     put16(pb + 0x10, ss);
     put16(pb + 0x12, ip);
