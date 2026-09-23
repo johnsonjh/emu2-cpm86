@@ -1,5 +1,6 @@
 #include "keyb.h"
 #include "codepage.h"
+#include "cpm86.h"
 #include "dbg.h"
 #include "emu.h"
 #include "os.h"
@@ -12,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/ioctl.h>
 #include <sys/time.h>
 #include <termios.h>
 #include <unistd.h>
@@ -661,6 +663,50 @@ void keyb_wakeup(void)
     throttle_calls = 0;
 }
 
+// Sleep when the guest is only spinning on keyboard status.  The trigger is a
+// *rate*, not a count: a guest doing real work between polls (an assembler
+// checking for ^C while it compiles) must never be stalled -- only one polling
+// back-to-back with nothing in between.
+static void throttle_idle_poll(void)
+{
+    static double last_time = 0;
+    static int kbhit_calls_threshold = -1;
+    static int kbhit_time_threshold = -1;
+    static int kbhit_sleep_time = -1;
+
+    if(kbhit_calls_threshold == -1)
+    {
+        const char *env_calls = getenv(EMU2_KBHIT_CALLS);
+        const char *env_time = getenv(EMU2_KBHIT_TIME);
+        const char *env_sleep = getenv(EMU2_KBHIT_SLEEP);
+        kbhit_calls_threshold = env_calls ? atoi(env_calls) : 1000;
+        kbhit_time_threshold = env_time ? atoi(env_time) : 10000;
+        kbhit_sleep_time = env_sleep ? atoi(env_sleep) : 10000;
+    }
+
+    throttle_calls++;
+    if(kbhit_calls_threshold > 0 && throttle_calls >= kbhit_calls_threshold)
+    {
+        struct timeval tv;
+        if(gettimeofday(&tv, NULL) != -1)
+        {
+            double t1 = tv.tv_usec + tv.tv_sec * 1000000.0;
+            // If the calls took less than the time threshold, detect as a tight polling loop.
+            if(last_time != 0 && (t1 - last_time) < kbhit_time_threshold)
+            {
+                debug(debug_int, "keyboard sleep.\n");
+                // Must be a real sleep: the tty runs with VMIN=0/VTIME=0, so
+                // read() never blocks and poll() always reports it readable.
+                cpu_usleep(kbhit_sleep_time);
+                if(gettimeofday(&tv, NULL) != -1)
+                    t1 = tv.tv_usec + tv.tv_sec * 1000000.0;
+            }
+            last_time = t1;
+        }
+        throttle_calls = 0;
+    }
+}
+
 int kbhit(void)
 {
     if(queued_key == -1)
@@ -669,49 +715,33 @@ int kbhit(void)
         queued_key = read_key();
         if(queued_key != -1)
         {
+            throttle_calls = 0;
             update_bios_state();
             cpuTriggerIRQ(1);
         }
         else
-        {
-            // Used to throttle the CPU on a busy-loop waiting for keyboard
-            static double last_time = 0;
-            static int kbhit_calls_threshold = -1;
-            static int kbhit_time_threshold = -1;
-            static int kbhit_sleep_time = -1;
-
-            if (kbhit_calls_threshold == -1)
-            {
-                const char *env_calls = getenv(EMU2_KBHIT_CALLS);
-                const char *env_time = getenv(EMU2_KBHIT_TIME);
-                const char *env_sleep = getenv(EMU2_KBHIT_SLEEP);
-                kbhit_calls_threshold = env_calls ? atoi(env_calls) : 1000;
-                kbhit_time_threshold = env_time ? atoi(env_time) : 10000;
-                kbhit_sleep_time = env_sleep ? atoi(env_sleep) : 10000;
-            }
-
-            throttle_calls++;
-            if(kbhit_calls_threshold > 0 && throttle_calls >= kbhit_calls_threshold)
-            {
-                struct timeval tv;
-                if(gettimeofday(&tv, NULL) != -1)
-                {
-                    double t1 = tv.tv_usec + tv.tv_sec * 1000000.0;
-                    // If calls took less than the time threshold, detect as a tight polling loop.
-                    if(last_time != 0 && (t1 - last_time) < kbhit_time_threshold)
-                    {
-                        debug(debug_int, "keyboard sleep.\n");
-                        cpu_usleep(kbhit_sleep_time);
-                        if(gettimeofday(&tv, NULL) != -1)
-                            t1 = tv.tv_usec + tv.tv_sec * 1000000.0;
-                    }
-                    last_time = t1;
-                }
-                throttle_calls = 0;
-            }
-        }
+            throttle_idle_poll();
     }
     return (queued_key == -1) ? 0 : queued_key;
+}
+
+// Non-destructive "is a key waiting?", for console-status calls.  Those must not
+// take the byte: leaving it in the tty keeps it under the line discipline, so a
+// later canonical-mode read still sees the whole line and erase/kill work on
+// every character -- including the first one.
+int keyb_ready(void)
+{
+    if(queued_key != -1)
+        return 1;
+    init_keyboard();
+    int pending = 0;
+    if(ioctl(tty_fd, FIONREAD, &pending) == 0 && pending > 0)
+    {
+        throttle_calls = 0;
+        return 1;
+    }
+    throttle_idle_poll();
+    return 0;
 }
 
 int getch(int detect_brk)
@@ -741,8 +771,10 @@ void update_keyb(void)
     if(script_data)
         inject_script_char();
 
-    // See if any key is available:
-    if(tty_fd >= 0 && term_raw && !waiting_key && queued_key == -1)
+    // See if any key is available.  Skipped for CP/M-86, which has no INT 09 /
+    // INT 16h keyboard: prefilling the BIOS buffer would only take bytes out of
+    // the tty behind a console-status call that deliberately left them there.
+    if(!cpm86_active && tty_fd >= 0 && term_raw && !waiting_key && queued_key == -1)
         kbhit();
 }
 

@@ -1008,6 +1008,9 @@ static void putc_cp(uint8_t ch, FILE *f)
 // Writes a character to standard output.
 static void dos_putchar(uint8_t ch, int fd)
 {
+    // Any console output means the guest is working, not idle-spinning on the
+    // keyboard: clear the throttle so output is never stalled (see issue #71).
+    keyb_wakeup();
     // Native CP/M-86 programs drive the console as a DOS-PLUS terminal (VT52 +
     // DRI colour + ANSI); let that layer interpret control sequences first.
     if(cpm86_active && devinfo[fd] == 0x80D3 && cpm_console_putch((char)ch))
@@ -1155,7 +1158,7 @@ static void char_input(int brk)
 // Returns true if a character to read is pending
 static int char_pending(void)
 {
-    return (inp_last_key != 0) || kbhit();
+    return (inp_last_key != 0) || keyb_ready();
 }
 
 static int line_input(FILE *f, uint8_t *buf, int max)
@@ -1606,9 +1609,6 @@ void intr21(void)
         }
         else
         {
-            // Wake-up keyboard on character output. This is needed so that
-            // VEDIT writes faster to the screen, see issue #71
-            keyb_wakeup();
             dos_putchar(cpuGetDX() & 0xFF, 1);
             cpuSetAL(cpuGetDX());
         }

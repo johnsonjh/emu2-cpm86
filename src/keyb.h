@@ -9,6 +9,9 @@ void keyb_load_script(const char *filename, int delay_ms);
 void update_keyb(void);
 int getch(int detect_brk);
 int kbhit(void);
+// Non-destructive key-available test, for console-status calls: never removes
+// the byte from the terminal, so the line discipline keeps control of it.
+int keyb_ready(void);
 void intr16(void);
 uint8_t keyb_read_port(unsigned port);
 void keyb_write_port(unsigned port, uint8_t value);
