@@ -1675,10 +1675,38 @@ void intr21(void)
         dos_open_file_fcb(0);
         break;
     case 0x10: // CLOSE FILE USING FCB
+    {
         dos_show_fcb();
+        int fcb = get_fcb();
+        unsigned h = get16(0x18 + fcb);
+        int err;
+        if(handles[h])
+            err = dos_close_file(h) != 0;
+        else
+        {
+            // Neither DOS nor CP/M keeps the open state inside the FCB: an FCB
+            // whose handle is already closed is re-resolved by name, so closing
+            // twice succeeds as long as the file still exists.  SID-86 relies on
+            // this when it loads a program (it closes, then closes again to test
+            // the result, printing "Cannot close" if the second one fails).
+            err = dos_fcb_size_by_name(fcb) < 0;
+            debug(debug_dos, "\tfcb already closed, %s.\n",
+                  err ? "file not found" : "OK");
+            if(err)
+            {
+                dos_error = 2;
+                cpuSetFlag(cpuFlag_CF);
+            }
+            else
+            {
+                dos_error = 0;
+                cpuClrFlag(cpuFlag_CF);
+            }
+        }
         // Set full AX because dos_close_file clobbers AX
-        cpuSetAX(dos_close_file(get_fcb_handle()) ? 0x10FF : 0x1000);
+        cpuSetAX(err ? 0x10FF : 0x1000);
         break;
+    }
     case 0x11: // FIND FIRST FILE USING FCB
         dos_find_first_fcb();
         break;
