@@ -207,6 +207,25 @@ NORETURN static void exit_handler(int x)
 
 static void init_bios_mem(void)
 {
+    // Hardware IRQ vectors (IRQ 0..7 -> INT 8..15):
+    // Point INT 8 (Timer) and INT 9 (Keyboard) to CS=0000, IP=inum so hardware
+    // IRQs enter emu2's BIOS dispatch in next_instruction().
+    for(int i = 8; i <= 15; i++)
+    {
+        put16(i * 4, i);      // IP = inum
+        put16(i * 4 + 2, 0);  // CS = 0000
+    }
+
+    // Keyboard buffer pointers in BDA (0040:001A..003E)
+    memory[0x41A] = 0x1E; // buffer head offset
+    memory[0x41B] = 0x00;
+    memory[0x41C] = 0x1E; // buffer tail offset
+    memory[0x41D] = 0x00;
+    memory[0x480] = 0x1E; // buffer start offset
+    memory[0x481] = 0x00;
+    memory[0x482] = 0x3E; // buffer end offset
+    memory[0x483] = 0x00;
+
     // Some of those are also in video.c, we write a
     // default value here for programs that don't call
     // INT10 functions before reading.

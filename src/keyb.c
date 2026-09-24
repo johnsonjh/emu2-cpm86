@@ -742,7 +742,7 @@ void update_keyb(void)
         inject_script_char();
 
     // See if any key is available:
-    if(tty_fd >= 0 && term_raw && !waiting_key && queued_key == -1)
+    if(!waiting_key && queued_key == -1)
         kbhit();
 }
 
