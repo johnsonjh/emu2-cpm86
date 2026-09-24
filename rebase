@@ -1,8 +1,0 @@
-git fetch upstream
-
-# 2. Reset your main branch to be 1:1 with upstream
-git checkout local/cpm86
-git reset --hard upstream/local/cpm86
-
-# 3. Force push to your GitHub fork (origin) so it is 100% clean
-git push --force origin local/cpm86
