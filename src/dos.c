@@ -1155,7 +1155,20 @@ static void char_input(int brk)
 // Returns true if a character to read is pending
 static int char_pending(void)
 {
-    return (inp_last_key != 0) || kbhit();
+    if(inp_last_key != 0)
+        return 1;
+    // When stdin is not a console (e.g. pipe/file), check the file descriptor
+    // directly rather than polling the keyboard via kbhit().
+    if(devinfo[0] != 0x80D3 && handles[0])
+    {
+        int fd = fileno(handles[0]);
+        struct timeval tv = {0, 0};
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(fd, &fds);
+        return select(fd + 1, &fds, NULL, NULL, &tv) > 0;
+    }
+    return kbhit();
 }
 
 static int line_input(FILE *f, uint8_t *buf, int max)

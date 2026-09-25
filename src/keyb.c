@@ -21,6 +21,7 @@
 
 static int term_raw = 0;
 static int tty_fd = -1;
+static int keyboard_suspended = 0; // set by suspend_keyboard, cleared by set_raw_term(1)
 
 // Read one byte from the tty, waiting at most `ms` for it.  Returns 1 and sets
 // *c on success, 0 on timeout / EOF.  Used for escape-sequence lookahead so a
@@ -607,6 +608,8 @@ static void set_raw_term(int raw)
 
     term_raw = raw;
     if(term_raw)
+        keyboard_suspended = 0;
+    if(term_raw)
     {
         struct termios newattr;
         tcgetattr(tty_fd, &oldattr);
@@ -652,6 +655,7 @@ static void init_keyboard(void)
 // Disables keyboard support - will be enabled again if needed
 void suspend_keyboard(void)
 {
+    keyboard_suspended = 1;
     if(tty_fd >= 0)
         set_raw_term(0);
 }
@@ -742,7 +746,14 @@ void update_keyb(void)
         inject_script_char();
 
     // See if any key is available:
-    if(tty_fd >= 0 && term_raw && !waiting_key && queued_key == -1)
+    // Only poll when not explicitly suspended. suspend_keyboard() sets
+    // keyboard_suspended=1 and puts the terminal into cooked mode for
+    // INT 21h AH=0Ah buffered input; calling kbhit() here would invoke
+    // init_keyboard() which forces raw mode back on before getc(stdin) runs,
+    // causing it to return EOF immediately.
+    // When keyboard has never been initialised (tty_fd<0, term_raw=0) we do
+    // allow kbhit() through so sdb.exe and similar pollers can bootstrap it.
+    if(!keyboard_suspended && !waiting_key && queued_key == -1)
         kbhit();
 }
 
@@ -761,7 +772,8 @@ uint8_t keyb_read_port(unsigned port)
     {
         if(queued_key != -1)
              last_key = queued_key >> 8;
-         queued_key = -1;
+         // Here we don't dequeue because the BIOS relies on the queue.
+         //queued_key = -1;
          return last_key;
     }
     else if(port == 0x61)
