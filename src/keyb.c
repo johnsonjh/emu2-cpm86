@@ -761,7 +761,8 @@ uint8_t keyb_read_port(unsigned port)
     {
         if(queued_key != -1)
              last_key = queued_key >> 8;
-         queued_key = -1;
+         // Here we don't dequeue because the BIOS relies on the queue.
+         //queued_key = -1;
          return last_key;
     }
     else if(port == 0x61)
