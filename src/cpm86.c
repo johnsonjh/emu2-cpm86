@@ -776,7 +776,7 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     // the command name) so parsers that expect that format work.
     char tail[130];
     unsigned tl = 0;
-    tail[tl++] = ' ';
+    //tail[tl++] = ' '; (CP/M empty command tail is to be zero length contrary to DOS)
     for(const char *s = cmdline ? cmdline : ""; *s && tl < 0x7F; s++)
     {
         char c = *s;
