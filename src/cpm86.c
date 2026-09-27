@@ -8,6 +8,7 @@
 #include "emu.h"
 #include "loader.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1287,14 +1288,14 @@ static int cpm_pload(void)
     {
         uint8_t c = memory[(fcb + 1 + i) & 0xFFFFF] & 0x7F;
         if(c == ' ') break;
-        prog[pn++] = (char)c;
+        prog[pn++] = (char)tolower(c);
     }
     prog[pn++] = '.';
     for(int i = 0; i < 3; i++)
     {
         uint8_t c = memory[(fcb + 9 + i) & 0xFFFFF] & 0x7F;
         if(c == ' ') break;
-        prog[pn++] = (char)c;
+        prog[pn++] = (char)tolower(c);
     }
     prog[pn] = 0;
     debug(debug_dos, "CP/M BDOS 59 (pload): prog=\"%s\"\n", prog);
