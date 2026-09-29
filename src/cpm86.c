@@ -1433,7 +1433,14 @@ void intr_cpm_bdos(void)
     // CP/M-86 passes the FCB in DS:DX exactly like the DOS FCB calls (which
     // descend from CP/M), so each maps to the matching DOS INT 21h function.
     case 13: bdos_ret(bdos_via_dos(0x0D)); break; // reset disk system
-    case 14: bdos_ret(bdos_via_dos(0x0E)); break; // select disk
+    case 14: // SELECT DISK
+        if((cpuGetDX() & 0xFF) >= 16) { // Letter P: last supported letter
+            bdos_ret(0xFF); 
+        } else {
+            bdos_via_dos(0x0E);
+            bdos_ret(0x00);
+        }
+        break; 
     case 16: // close file.  Per CP/M 3 / DOS Plus, the LRBC (last-record byte
              // count) is set AFTER close via BDOS 30 (F_ATTRIB) with bit 7 of
              // FCB+6 set - handled in case 30 below.  FCB+0x20 at close time is
