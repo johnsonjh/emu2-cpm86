@@ -2124,6 +2124,9 @@ void intr21(void)
         cpuSetAX(dosver);
         cpuSetBX(0x0000);
         break;
+    case 0x31: // TSR Not implemented, finishing with error code (equivalent to going by to the parent with error code)
+        print_error("error, dos tsr invoked, not supported, exiting..\n");
+        break;
     case 0x33: // BREAK SETTINGS
         if(ax == 0x3300)
             cpuSetDX((cpuGetDX() & 0xFF00) | 1);
