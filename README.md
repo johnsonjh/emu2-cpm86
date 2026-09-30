@@ -59,6 +59,7 @@ Options (should be placed *before* the DOS or CP/M‑86 program name):
 | `‑b`&nbsp;`addr` | Load header‑less binary at given address (to load ROMs or test data). |
 | `‑r`&nbsp;`<seg:ip>` | Specify a run address to start execution (only for binary loaded data). |
 | `‑m`&nbsp;`<kb>` | CP/M‑86 TPA size in KB; same as `EMU2_CPM_TPA` (~640K default). |
+| `‑c`&nbsp;`<cpu>` | Select the emulated CPU model: `8088`, `8086`, `80186`, or `80286`.  The default is `80286`; same as `EMU2_CPU`. |
 | `‑s`&nbsp;`<file>` | Specify a keyboard script file (to automatically inject keystrokes). |
 | `‑d`&nbsp;`<ms>` | Delay `<ms>` between each keyboard script character. Default is 1ms; use `0` to send as fast as possible. |
 | `‑i`&nbsp;`<ms>` | Delay `<ms>` before sending any keyboard script characters. |
@@ -116,6 +117,7 @@ env EMU2_DEBUG="dos" EMU2_DEBUG_NAME="trace" emu2 myprog.cmd
 | `EMU2_COLS` | Sets up the VGA text mode to the given number of columns, from `40` to `132` at the program start. Set to `auto` to detect the terminal column count at startup (with detected values clamped to fit between `40` and `132`).<br><br>Some full‑screen programs will retrieve this info and adjust the screen properly, others ignore this and setup the text mode again. |
 | `EMU2_FULLSCREEN` | Run explicitly as a full‑screen direct video program.<br><br>When enabled, the terminal is fully cleared, direct video mode is enabled, and some text processing heuristics are disabled. |
 | `EMU2_CPU_SPEED` | Limits the emulated CPU speed to at most the given number of instructions per millisecond. For reference, a value of 1000 (1 MIPS) approximates a fast 8086 or slow 80286.<br><br>By default (or when set to `0`), there is no limit; a modern PC can typically reach 200,000 or more instructions per millisecond.<br><br>Note that this does not accurately emulate a specific CPU speed, since real 8086/80286 processors take a varying number of cycles per instruction. |
+| `EMU2_CPU` | Selects the emulated CPU model: `8088`, `8086`, `80186`, or `80286`.  Default is `80286`; command-line `-c` overrides this setting. |
 | `EMU2_KBHIT_CALLS` | Number of `kbhit()` polling calls allowed in time limit for tight‑loop detection. If more than `EMU2_KBHIT_CALLS` execute in less than `EMU2_KBHIT_TIME` microseconds, the CPU sleeps for `EMU2_KBHIT_SLEEP` microseconds.<br><br>Default is `1000`. Set to `0` to *completely disable* the keyboard throttling (otherwise idle CP/M and DOS programs may consume 100% host CPU, but *may* be more responsive). |
 | `EMU2_KBHIT_TIME` | Time threshold in microseconds for the `kbhit()` tight‑loop detection. Default is `10000` (10ms). |
 | `EMU2_KBHIT_SLEEP` | Sleep duration in microseconds when the tight‑loop detection gets triggered. Default is `10000` (10ms). |

@@ -107,21 +107,25 @@ NORETURN void print_usage(void)
 "\n"
 "Options (processed before program name):\n"
 "  -h            Show this help.\n"
-"  -f            Start explicitly as a full-screen direct video program; turns\n"
-"                off some text processing heuristics (same as EMU2_FULLSCREEN).\n"
+"  -f            Start explicitly as a full-screen direct video program;\n"
+"                turns off some text processing heuristics.\n"
+"                (Same as EMU2_FULLSCREEN environment variable.)\n"
 "  -b <addr>     Load header-less binary at address.\n"
 "  -r <seg:ip>   Specify a run address to start execution.\n"
-"                (only for binary loaded data)\n"
-"  -m <kb>       CP/M-86 TPA in KB; same as EMU2_CPM_TPA. (default: 640K)\n"
-"  -s <file>     Specify a keyboard script file. (injects keystrokes)\n"
+"                (Only used for binary loaded data.)\n"
+"  -m <kb>       CP/M-86 TPA in KB (default: 640K).\n"
+"                (Same as EMU2_CPM_TPA environment variable.)\n"
+"  -c <cpu>      CPU model: 8088, 8086, 80186, or 80286 (default: 80286).\n"
+"                (Same as EMU2_CPU environment variable.)\n"
+"  -s <file>     Specify a keyboard script file (injecting keystrokes).\n"
 "  -d <ms>       Delay <ms> between each keyboard script character.\n"
-"                Default is 1ms; use '0' to send as fast as possible.\n"
+"                (Default is 1ms; use '0' to send as fast as possible.)\n"
 "  -i <ms>       Delay <ms> before sending keyboard script characters.\n"
 "  -l <ms>       Delay keyboard script by <ms> after each newline.\n"
 "  -P <byte>     Fill CP/M-86 memory with <byte> before loading.\n"
-"                (same as EMU2_CPM_POISON=<byte>)\n"
+"                (Same as EMU2_CPM_POISON=<byte> environment variable.)\n"
 "  -D            Fill CP/M-86 memory with 0xFF before loading.\n"
-"                (same as EMU2_CPM_DIRTY)\n"
+"                (Same as EMU2_CPM_DIRTY environment variable.)\n"
 "\n"
 "Environment variables:\n"
              "  %-18s  Base name of a file to write the debug log, defaults to\n"
@@ -164,7 +168,8 @@ NORETURN void print_usage(void)
              "  %-18s  Time (in microseconds) for kbhit throttling detection\n"
 "                      (default 10000).\n"
              "  %-18s  Sleep time (in microseconds) for the kbhit throttle delay\n"
-"                      (default 10000).\n",
+"                      (default 10000).\n"
+             "  %-18s  CPU model: 8088, 8086, 80186, or 80286 (default: 80286).\n",
            prog_name,
            ENV_DBG_NAME,
            ENV_DBG_OPT,
@@ -192,7 +197,8 @@ NORETURN void print_usage(void)
            "EMU2_CPM_DIRTY",
            EMU2_KBHIT_CALLS,
            EMU2_KBHIT_TIME,
-           EMU2_KBHIT_SLEEP);
+           EMU2_KBHIT_SLEEP,
+           ENV_CPU);
     exit(EXIT_SUCCESS);
 }
 

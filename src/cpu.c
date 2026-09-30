@@ -1,6 +1,7 @@
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "cpu.h"
@@ -13,12 +14,23 @@
 
 // Forward declarations
 static void do_instruction(uint8_t code);
+static void do_instruction_limited(uint8_t code);
 
 static uint16_t wregs[8];
 static uint16_t sregs[4];
 
 static uint16_t ip;
 static uint16_t start_ip; // IP at start of instruction, used on interrupts.
+
+enum
+{
+    CPU_LEVEL_8086 = 1,
+    CPU_LEVEL_80186,
+    CPU_LEVEL_80286
+};
+
+/* The standard emulator behaviour is to default to 286 CPU model. */
+static int cpu_level = CPU_LEVEL_80286;
 
 // CP/M-86 8080-model warm-boot trap: code segment whose offset 0 terminates the
 // program (set by the CP/M loader; 0 disables).  See cpm86_load_cmd().
@@ -144,15 +156,10 @@ static void PushWord(uint16_t w)
     SetMemW(SS, wregs[SP], w);
 }
 
-#ifdef CPU_PUSH_80286
+/* Default decoding is 80286 path; older CPU models intercept opcode 54h. */
 # define PUSH_SP()                                                             \
     PushWord(wregs[SP]);                                                       \
     break;
-#else
-# define PUSH_SP()                                                             \
-    PushWord(wregs[SP] - 2);                                                   \
-    break;
-#endif
 
 static uint16_t PopWord(void)
 {
@@ -254,6 +261,80 @@ static uint16_t FETCH_W(void)
 
 #define SET_r16w() SetModRMRegW(ModRM, dest)
 
+static const char *cpu_level_name(int level)
+{
+    switch(level)
+    {
+    case CPU_LEVEL_8086:  return "8086";
+    case CPU_LEVEL_80186: return "80186";
+    case CPU_LEVEL_80286: return "80286";
+    default:              return "unknown";
+    }
+}
+
+int cpuParseLevel(const char *name)
+{
+    if(!strcmp(name, "8088") || !strcmp(name, "8086"))
+        return CPU_LEVEL_8086;
+    if(!strcmp(name, "186") || !strcmp(name, "80186"))
+        return CPU_LEVEL_80186;
+    if(!strcmp(name, "286") || !strcmp(name, "80286"))
+        return CPU_LEVEL_80286;
+    return 0;
+}
+
+void cpuSetLevel(int level)
+{
+    if(level < CPU_LEVEL_8086 || level > CPU_LEVEL_80286)
+        print_error("invalid CPU level %d\n", level);
+    cpu_level = level;
+}
+
+static int cpu_min_level(uint8_t opcode)
+{
+    switch(opcode)
+    {
+    case 0x0f: /* 80286 extended-opcode escape */
+    case 0x63: /* ARPL */
+        return CPU_LEVEL_80286;
+
+    case 0x60: /* PUSHA */
+    case 0x61: /* POPA */
+    case 0x62: /* BOUND */
+    case 0x68: /* PUSH imm16 */
+    case 0x69: /* IMUL r16,r/m16,imm16 */
+    case 0x6a: /* PUSH imm8 */
+    case 0x6b: /* IMUL r16,r/m16,imm8 */
+    case 0x6c: /* INSB */
+    case 0x6d: /* INSW */
+    case 0x6e: /* OUTSB */
+    case 0x6f: /* OUTSW */
+    case 0xc0: /* shift/rotate r/m8,imm8 */
+    case 0xc1: /* shift/rotate r/m16,imm8 */
+    case 0xc8: /* ENTER */
+    case 0xc9: /* LEAVE */
+        return CPU_LEVEL_80186;
+
+    default:
+        return CPU_LEVEL_8086;
+    }
+}
+
+NORETURN static void cpu_level_error(uint8_t opcode)
+{
+    int required = cpu_min_level(opcode);
+    print_error("opcode %02X at %04X:%04X requires %s or higher "
+                "(CPU set to %s)\n",
+                opcode, sregs[CS], start_ip, cpu_level_name(required),
+                cpu_level_name(cpu_level));
+}
+
+static void cpu_check_opcode(uint8_t opcode)
+{
+    if(cpu_min_level(opcode) > cpu_level)
+        cpu_level_error(opcode);
+}
+
 void init_cpu(void)
 {
     unsigned i, j, c;
@@ -286,6 +367,9 @@ void init_cpu(void)
     gdt_limit = 0xFFFF;
     idt_limit = 0x03FF;
     msw = 0xFFF0; // real mode PE clear
+
+    // init_cpu() restores default 80286 model
+    cpu_level = CPU_LEVEL_80286;
 
     // Read CPU speed vars
     ins_per_ms = 0;
@@ -449,6 +533,19 @@ static void next_instruction(void)
         do_instruction(FETCH_B());
 }
 
+static void next_instruction_limited(void)
+{
+    start_ip = ip;
+    if(sregs[CS] == 0 && ip < 0x100) // Handle our BIOS codes
+    {
+        FETCH_B();
+        bios_routine(ip - 1);
+        do_instruction(0xCF);
+    }
+    else
+        do_instruction_limited(FETCH_B());
+}
+
 static void interrupt(unsigned int_num)
 {
     uint16_t dest_seg, dest_off;
@@ -474,8 +571,11 @@ static void do_retf(void)
 
 static void trap_1(void)
 {
-    next_instruction();
-    // INT/IRET/POPF clear TF as they execute; the 8086 suppresses the trap then.
+    if(cpu_level == CPU_LEVEL_80286)
+        next_instruction();
+    else
+        next_instruction_limited();
+    // INT/IRET/POPF clear TF as they execute; 8086 suppresses the trap then.
     if(TF)
         interrupt(1);
 }
@@ -494,10 +594,17 @@ static void do_iret(void)
     do_popf();
 }
 
-// BOUND or DIV0
+// BOUND or divide error.
 static void cpu_trap(int num)
 {
-    ip = start_ip;
+    /*
+     * 8086 and 186 save the IP following DIV/IDIV for INT 0. Starting with
+     * the 286, divide error is restartable and saves the address of the
+     * faulting instruction (including prefixes). BOUND/INT 5 is restartable
+     * on every CPU that implements it.
+     */
+    if(num != 0 || cpu_level >= CPU_LEVEL_80286)
+        ip = start_ip;
     interrupt(num);
 }
 
@@ -1451,10 +1558,8 @@ static uint8_t shift1_b(uint8_t val, int ModRM)
 
 static uint8_t shifts_b(uint8_t val, int ModRM, unsigned count)
 {
-
-#ifdef CPU_SHIFT_80186
+    // 186 and later mask variable/immediate shift counts to five bits!
     count &= 0x1F;
-#endif
 
     if(!count)
         return val; // No flags affected.
@@ -1533,9 +1638,13 @@ static uint8_t shifts_b(uint8_t val, int ModRM, unsigned count)
         SetZFB(val);
         break;
     case 0x38: /* SAR eb,CL */
-        CF = (((int8_t)val >> (count - 1)) & 0x01) != 0;
+        /* Track the last shifted-out bit directly; this is defined for every
+           count and does not rely on implementation-defined signed shifts. */
         for(; count > 0; count--)
+        {
+            CF = val & 1;
             val = (val >> 1) | (val & 0x80);
+        }
         SetSFB(val);
         SetPF(val);
         SetZFB(val);
@@ -1606,9 +1715,8 @@ static uint16_t shift1_w(uint16_t val, int ModRM)
 
 static uint16_t shifts_w(uint16_t val, int ModRM, unsigned count)
 {
-#ifdef CPU_SHIFT_80186
+    // 186 and later mask variable/immediate shift counts to five bits!
     count &= 0x1F;
-#endif
 
     if(!count)
         return val; // No flags affected.
@@ -1686,16 +1794,161 @@ static uint16_t shifts_w(uint16_t val, int ModRM, unsigned count)
         SetZFW(val);
         SetPF(val);
         break;
-    case 0x38: /* SAR eb,CL */
-        CF = (((int8_t)val >> (count - 1)) & 0x01) != 0;
+    case 0x38: /* SAR ew,CL */
         for(; count > 0; count--)
+        {
+            CF = val & 1;
             val = (val >> 1) | (val & 0x8000);
+        }
         SetSFW(val);
         SetZFW(val);
         SetPF(val);
         break;
     }
 
+    return val;
+}
+
+/*
+ * The 8086 does not apply 186 five-bit count mask. For counts below
+ * 32 the normal helpers are identical, only otherwise wrapped range
+ * is handled here. CL is eight bits, loops are bounded by 255.
+ */
+static uint8_t shifts_b_8086(uint8_t val, int ModRM, unsigned count)
+{
+    if(count < 0x20)
+        return shifts_b(val, ModRM, count);
+
+    AF = 0;
+    OF = 0;
+    switch(ModRM & 0x38)
+    {
+    case 0x00: /* ROL eb,CL */
+        for(; count > 0; count--)
+        {
+            CF = (val & 0x80) != 0;
+            val = (val << 1) | CF;
+        }
+        OF = !(val & 0x80) != !CF;
+        break;
+    case 0x08: /* ROR eb,CL */
+        for(; count > 0; count--)
+        {
+            CF = (val & 0x01) != 0;
+            val = (val >> 1) | (CF << 7);
+        }
+        OF = !(val & 0x40) != !(val & 0x80);
+        break;
+    case 0x10: /* RCL eb,CL */
+        for(; count > 0; count--)
+        {
+            uint8_t oldCF = CF;
+            CF = (val & 0x80) != 0;
+            val = (val << 1) | oldCF;
+        }
+        OF = !(val & 0x80) != !CF;
+        break;
+    case 0x18: /* RCR eb,CL */
+        for(; count > 0; count--)
+        {
+            uint8_t oldCF = CF;
+            CF = val & 1;
+            val = (val >> 1) | (oldCF << 7);
+        }
+        OF = !(val & 0x40) != !(val & 0x80);
+        break;
+    case 0x20:
+    case 0x30: /* SHL/SAL eb,CL */
+        CF = 0;
+        val = 0;
+        SetZFB(val);
+        SetSFB(val);
+        SetPF(val);
+        break;
+    case 0x28: /* SHR eb,CL */
+        CF = 0;
+        val = 0;
+        SetSFB(val);
+        SetPF(val);
+        SetZFB(val);
+        break;
+    case 0x38: /* SAR eb,CL */
+        CF = (val & 0x80) != 0;
+        val = CF ? 0xFF : 0;
+        SetSFB(val);
+        SetPF(val);
+        SetZFB(val);
+        break;
+    }
+    return val;
+}
+
+static uint16_t shifts_w_8086(uint16_t val, int ModRM, unsigned count)
+{
+    if(count < 0x20)
+        return shifts_w(val, ModRM, count);
+
+    AF = 0;
+    OF = 0;
+    switch(ModRM & 0x38)
+    {
+    case 0x00: /* ROL ew,CL */
+        for(; count > 0; count--)
+        {
+            CF = (val & 0x8000) != 0;
+            val = (val << 1) | CF;
+        }
+        OF = !(val & 0x8000) != !CF;
+        break;
+    case 0x08: /* ROR ew,CL */
+        for(; count > 0; count--)
+        {
+            CF = (val & 0x01) != 0;
+            val = (val >> 1) | (CF << 15);
+        }
+        OF = !(val & 0x4000) != !(val & 0x8000);
+        break;
+    case 0x10: /* RCL ew,CL */
+        for(; count > 0; count--)
+        {
+            uint8_t oldCF = CF;
+            CF = (val & 0x8000) != 0;
+            val = (val << 1) | oldCF;
+        }
+        OF = !(val & 0x8000) != !CF;
+        break;
+    case 0x18: /* RCR ew,CL */
+        for(; count > 0; count--)
+        {
+            uint8_t oldCF = CF;
+            CF = val & 1;
+            val = (val >> 1) | (oldCF << 15);
+        }
+        OF = !(val & 0x4000) != !(val & 0x8000);
+        break;
+    case 0x20:
+    case 0x30: /* SHL/SAL ew,CL */
+        CF = 0;
+        val = 0;
+        SetZFW(val);
+        SetSFW(val);
+        SetPF(val);
+        break;
+    case 0x28: /* SHR ew,CL */
+        CF = 0;
+        val = 0;
+        SetSFW(val);
+        SetPF(val);
+        SetZFW(val);
+        break;
+    case 0x38: /* SAR ew,CL */
+        CF = (val & 0x8000) != 0;
+        val = CF ? 0xFFFF : 0;
+        SetSFW(val);
+        SetZFW(val);
+        SetPF(val);
+        break;
+    }
     return val;
 }
 
@@ -1757,6 +2010,26 @@ static void i_d3pre(void)
     uint16_t dest = GetModRMRMW(ModRM);
 
     dest = shifts_w(dest, ModRM, wregs[CX] & 0xFF);
+
+    SetModRMRMW(ModRM, dest);
+}
+
+static void i_d2pre_8086(void)
+{
+    int ModRM = FETCH_B();
+    uint8_t dest = GetModRMRMB(ModRM);
+
+    dest = shifts_b_8086(dest, ModRM, wregs[CX] & 0xFF);
+
+    SetModRMRMB(ModRM, dest);
+}
+
+static void i_d3pre_8086(void)
+{
+    int ModRM = FETCH_B();
+    uint16_t dest = GetModRMRMW(ModRM);
+
+    dest = shifts_w_8086(dest, ModRM, wregs[CX] & 0xFF);
 
     SetModRMRMW(ModRM, dest);
 }
@@ -2043,6 +2316,81 @@ static void rep(int flagval)
     }
 }
 
+static void rep_limited(int flagval)
+{
+    uint8_t next = FETCH_B();
+    unsigned count = wregs[CX];
+
+    cpu_check_opcode(next);
+    switch(next)
+    {
+    case 0x26: /* ES: */
+        segment_override = ES;
+        rep_limited(flagval);
+        segment_override = NoSeg;
+        break;
+    case 0x2e: /* CS: */
+        segment_override = CS;
+        rep_limited(flagval);
+        segment_override = NoSeg;
+        break;
+    case 0x36: /* SS: */
+        segment_override = SS;
+        rep_limited(flagval);
+        segment_override = NoSeg;
+        break;
+    case 0x3e: /* DS: */
+        segment_override = DS;
+        rep_limited(flagval);
+        segment_override = NoSeg;
+        break;
+    case 0x6c: /* REP INSB */
+        REP_COUNT(i_insb);
+        break;
+    case 0x6d: /* REP INSW */
+        REP_COUNT(i_insw);
+        break;
+    case 0x6e: /* REP OUTSB */
+        REP_COUNT(i_outsb);
+        break;
+    case 0x6f: /* REP OUTSW */
+        REP_COUNT(i_outsw);
+        break;
+    case 0xa4: /* REP MOVSB */
+        REP_COUNT(i_movsb);
+        break;
+    case 0xa5: /* REP MOVSW */
+        REP_COUNT(i_movsw);
+        break;
+    case 0xa6: /* REP(N)E CMPSB */
+        REP_CONDITION(i_cmpsb);
+        break;
+    case 0xa7: /* REP(N)E CMPSW */
+        REP_CONDITION(i_cmpsw);
+        break;
+    case 0xaa: /* REP STOSB */
+        REP_COUNT(i_stosb);
+        break;
+    case 0xab: /* REP STOSW */
+        REP_COUNT(i_stosw);
+        break;
+    case 0xac: /* REP LODSB */
+        REP_COUNT(i_lodsb);
+        break;
+    case 0xad: /* REP LODSW */
+        REP_COUNT(i_lodsw);
+        break;
+    case 0xae: /* REP(N)E SCASB */
+        REP_CONDITION(i_scasb);
+        break;
+    case 0xaf: /* REP(N)E SCASW */
+        REP_CONDITION(i_scasw);
+        break;
+    default: /* Ignore REP */
+        do_instruction_limited(next);
+    }
+}
+
 static void i_f6pre(void)
 {
     int ModRM = FETCH_B();
@@ -2102,13 +2450,19 @@ static void i_f6pre(void)
             cpu_trap(0);
     }
     break;
-    case 0x38: /* IDIV AL, Ew */
+    case 0x38: /* IDIV AL, Eb */
     {
-        int16_t numer = wregs[AX];
-        int16_t div;
+        int32_t numer = wregs[AX];
+        int32_t divisor = dest;
+        int32_t div;
+        int32_t min_quot = cpu_level == CPU_LEVEL_8086 ? -0x7F : -0x80;
 
-        if(dest && (div = numer / (int8_t)dest) < 0x80 && div >= -0x80)
-            wregs[AX] = (numer % (int8_t)dest) * 256 + (uint8_t)div;
+        if(numer & 0x8000)
+            numer -= 0x10000;
+        if(divisor & 0x80)
+            divisor -= 0x100;
+        if(divisor && (div = numer / divisor) < 0x80 && div >= min_quot)
+            wregs[AX] = ((uint16_t)(uint8_t)(numer % divisor) << 8) | (uint8_t)div;
         else
             cpu_trap(0);
     }
@@ -2184,15 +2538,24 @@ static void i_f7pre(void)
             cpu_trap(0);
     }
     break;
-    case 0x38: /* IDIV AL, Ew */
+    case 0x38: /* IDIV AX, Ew */
     {
-        int32_t numer = ((uint32_t)wregs[DX] << 16) + wregs[AX];
-        int32_t div;
+        int32_t divisor = dest;
+        int64_t numer = wregs[DX];
+        int64_t div;
+        int64_t min_quot = cpu_level == CPU_LEVEL_8086 ? -0x7FFF : -0x8000;
 
-        if(dest && (div = numer / (int16_t)dest) < 0x8000 && div >= -0x8000)
+        if(divisor & 0x8000)
+            divisor -= 0x10000;
+        if(numer & 0x8000)
+            numer -= 0x10000;
+        numer = numer * 0x10000 + wregs[AX];
+
+        // int64_t also avoids host-C INT32_MIN / -1 overflow here!
+        if(divisor && (div = numer / divisor) < 0x8000 && div >= min_quot)
         {
-            wregs[AX] = div;
-            wregs[DX] = numer % (int16_t)dest;
+            wregs[AX] = (uint16_t)div;
+            wregs[DX] = (uint16_t)(numer % divisor);
         }
         else
             cpu_trap(0);
@@ -2439,6 +2802,80 @@ static void debug_instruction(void)
           DF ? "DN" : "UP", IF ? "EI" : "DI", SF ? "NG" : "PL", ZF ? "ZR" : "NZ",
           AF ? "AC" : "NA", PF ? "PE" : "PO", CF ? "CY" : "NC");
     debug(debug_cpu, "%04X:%04X %s\n", sregs[CS], nip, disa(ip, nip, segment_override));
+}
+
+static void do_instruction_limited(uint8_t code)
+{
+    cpu_check_opcode(code);
+
+    switch(code)
+    {
+    case 0x26: /* ES: */
+        if(debug_active(debug_cpu) && segment_override == NoSeg)
+            debug_instruction();
+        segment_override = ES;
+        do_instruction_limited(FETCH_B());
+        segment_override = NoSeg;
+        break;
+    case 0x2e: /* CS: */
+        if(debug_active(debug_cpu) && segment_override == NoSeg)
+            debug_instruction();
+        segment_override = CS;
+        do_instruction_limited(FETCH_B());
+        segment_override = NoSeg;
+        break;
+    case 0x36: /* SS: */
+        if(debug_active(debug_cpu) && segment_override == NoSeg)
+            debug_instruction();
+        segment_override = SS;
+        do_instruction_limited(FETCH_B());
+        segment_override = NoSeg;
+        break;
+    case 0x3e: /* DS: */
+        if(debug_active(debug_cpu) && segment_override == NoSeg)
+            debug_instruction();
+        segment_override = DS;
+        do_instruction_limited(FETCH_B());
+        segment_override = NoSeg;
+        break;
+    case 0x54: /* PUSH SP: 8086/80186 push the post-decrement value */
+        if(debug_active(debug_cpu) && segment_override == NoSeg)
+            debug_instruction();
+        PushWord((uint16_t)(wregs[SP] - 2));
+        break;
+    case 0xd2: /* 8086 has no five-bit shift-count mask */
+        if(cpu_level == CPU_LEVEL_8086)
+        {
+            if(debug_active(debug_cpu) && segment_override == NoSeg)
+                debug_instruction();
+            i_d2pre_8086();
+        }
+        else
+            do_instruction(code);
+        break;
+    case 0xd3:
+        if(cpu_level == CPU_LEVEL_8086)
+        {
+            if(debug_active(debug_cpu) && segment_override == NoSeg)
+                debug_instruction();
+            i_d3pre_8086();
+        }
+        else
+            do_instruction(code);
+        break;
+    case 0xf2:
+        if(debug_active(debug_cpu) && segment_override == NoSeg)
+            debug_instruction();
+        rep_limited(0);
+        break;
+    case 0xf3:
+        if(debug_active(debug_cpu) && segment_override == NoSeg)
+            debug_instruction();
+        rep_limited(1);
+        break;
+    default:
+        do_instruction(code);
+    }
 }
 
 static void do_instruction(uint8_t code)
@@ -2706,7 +3143,7 @@ static void do_instruction(uint8_t code)
     };
 }
 
-void execute(void)
+static void execute_80286(void)
 {
     for(; !exit_cpu;)
     {
@@ -2732,6 +3169,39 @@ void execute(void)
             exit(0);
         next_instruction();
     }
+}
+
+static void execute_limited(void)
+{
+    for(; !exit_cpu;)
+    {
+        if(ins_per_ms)
+        {
+            // Slowdown CPU count
+            if(num_ins_exec++ >= ins_per_ms)
+            {
+                debug(debug_cpu, "-- CPU SLEEP --\n");
+                while(!emu_compare_time(&next_sleep_time))
+                    usleep(500);
+                // Advance next sleep 1ms
+                emu_advance_time(1000, &next_sleep_time);
+                num_ins_exec -= ins_per_ms;
+            }
+        }
+        handle_irq();
+        if(cpm_wboot_seg && sregs[CS] == cpm_wboot_seg && ip == 0)
+            exit(0);
+        next_instruction_limited();
+    }
+}
+
+void execute(void)
+{
+    // normal (286+) loop has no per-instruction level checks!
+    if(cpu_level == CPU_LEVEL_80286)
+        execute_80286();
+    else
+        execute_limited();
 }
 
 // Sleeps and advances next CPU time slice

@@ -283,6 +283,7 @@ int main(int argc, char **argv)
 
     // Process command line options
     int bin_load_seg = 0, bin_load_ip = 0, bin_load_addr = -1;
+    int opt_cpu_level = 0;
     int skip_init_bios = 0;
     for(i = 1; i < argc; i++)
     {
@@ -297,6 +298,7 @@ int main(int argc, char **argv)
         switch(flag)
         {
         case 'b':
+        case 'c':
         case 'r':
         case 'm':
         case 'P':
@@ -325,6 +327,13 @@ int main(int argc, char **argv)
             exit(EXIT_SUCCESS);
         case 'f':
             opt_fullscreen = 1;
+            break;
+        case 'c':
+            opt_cpu_level = cpuParseLevel(opt);
+            if(!opt_cpu_level)
+                print_usage_error("invalid CPU type '%s' "
+                                  "(use 8088/8086, 80186, or 80286).",
+                                  opt);
             break;
         case 'b':
             bin_load_addr = strtol(opt, &ep, 0);
@@ -450,6 +459,19 @@ int main(int argc, char **argv)
     // Init debug facilities
     init_debug(argv[1]);
     init_cpu();
+
+    /* -c overrides EMU2_CPU, including an invalid environment setting. */
+    if(!opt_cpu_level && getenv(ENV_CPU))
+    {
+        const char *name = getenv(ENV_CPU);
+        opt_cpu_level = cpuParseLevel(name);
+        if(!opt_cpu_level)
+            print_error("invalid CPU type '%s' "
+                        "(use 8088/8086, 80186, or 80286)\n",
+                        name);
+    }
+    if(opt_cpu_level)
+        cpuSetLevel(opt_cpu_level);
 
     if(getenv("EMU2_RAMDUMP"))
         atexit(dump_ram_on_exit);

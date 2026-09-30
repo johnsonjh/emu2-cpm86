@@ -17,6 +17,7 @@
 # define ENV_DOSVER        "EMU2_DOSVER"
 # define ENV_CPMVER        "EMU2_CPM_VER"
 # define ENV_CPUSPEED      "EMU2_CPU_SPEED"
+# define ENV_CPU           "EMU2_CPU"
 # define ENV_LRBC_NOTRUNC  "EMU2_CPM_NOTRUNC"
 # define ENV_CPM_ISXLRBC   "EMU2_CPM_ISXLRBC"
 # define EMU2_KBHIT_CALLS  "EMU2_KBHIT_CALLS"

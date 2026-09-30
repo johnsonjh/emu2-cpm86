@@ -22,6 +22,8 @@ void bios_routine(unsigned inum);
 // CPU interface
 void execute(void); // 1 ins.
 void init_cpu(void);
+int cpuParseLevel(const char *name);
+void cpuSetLevel(int level);
 
 // async HW update
 void emulator_update(void);

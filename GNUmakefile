@@ -34,9 +34,10 @@ obj:
 	mkdir -p obj
 
 .PHONY: check test
-check test: emu2 tests/cpm86-reloc/run.sh tests/test_asm86_no_truncate.sh
-	env EMU2="$$(pwd -P)"/emu2 sh tests/cpm86-reloc/run.sh
+check test: emu2 tests/cpm86-reloc/run.sh tests/test_asm86_no_truncate.sh tests/test_cpu_level.sh
+	env root="$(CURDIR)" EMU2="$$(pwd -P)"/emu2 sh tests/cpm86-reloc/run.sh
 	env root="$(CURDIR)" EMU2="$$(pwd -P)"/emu2 sh tests/test_asm86_no_truncate.sh
+	env root="$(CURDIR)" EMU2="$$(pwd -P)"/emu2 sh tests/test_cpu_level.sh
 
 .PHONY: clean distclean
 clean distclean:
