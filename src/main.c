@@ -139,6 +139,13 @@ void bios_routine(unsigned inum)
         print_error("error, unimplemented opcode %02X at cs:ip = %04X:%04X\n",
                     memory[cpuGetAddress(cs, ip)], cs, ip);
     }
+    else if(inum == 0x00)
+    {
+        uint16_t ip = cpuGetStack(0);
+        uint16_t cs = cpuGetStack(2);
+        print_error("error, divide by zero at cs:ip = %04X:%04X\n",
+                    cs, ip);
+    }
     else if(inum == 0x28)
     {
         if(cpm86_active)
