@@ -214,6 +214,9 @@ NORETURN static void exit_handler(int x)
 
 static void init_bios_mem(void)
 {
+    // Reset INT 0 Vector
+    put16(0x0, 0x0000);       // IP = 0000
+    put16(0x2, 0x0000);       // CS = 0000
     // Hardware IRQ vectors (IRQ 0..7 -> INT 8..15):
     // Point INT 8 (Timer) and INT 9 (Keyboard) to CS=0000, IP=inum so hardware
     // IRQs enter emu2's BIOS dispatch in next_instruction().
