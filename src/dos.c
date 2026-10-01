@@ -2103,13 +2103,22 @@ void intr21(void)
         cpuSetBX(get16(4 * (ax & 0xFF)));
         cpuSetES(get16(4 * (ax & 0xFF) + 2));
         break;
-    case 0x36: // get free space
-        // We only return 512MB free, as some old DOS programs crash if
-        // the free space returned is more than 0x7FFF clusters.
-        cpuSetAX(32);     // 16k clusters
-        cpuSetBX(0x7FFF); // half of disk free, 512MB
-        cpuSetCX(512);    // 512 bytes/sector
-        cpuSetDX(0xFFFF); // total 1GB
+    case 0x36: 
+        // We could at a later stage incorporate a string Disk Mapping but this is 
+        // currently not the case at all across the API. So keeping consistent.
+        if((cpuGetDX() & 0xFF)>26) // check drive number
+        {
+            cpuSetAX(0xFFFF);
+            break;
+        } else {
+            // get free space
+            // we only return 512MB free, as some old DOS programs crash if
+            // the free space returned is more than 0x7FFF clusters.
+            cpuSetAX(32);     // 16k clusters
+            cpuSetBX(0x7FFF); // half of disk free, 512MB
+            cpuSetCX(512);    // 512 bytes/sector
+            cpuSetDX(0xFFFF); // total 1GB
+        }
         break;
     case 0x37: // get/set switch character
         cpuSetDX('/');
