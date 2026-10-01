@@ -143,7 +143,7 @@ void bios_routine(unsigned inum)
     {
         uint16_t ip = cpuGetStack(0);
         uint16_t cs = cpuGetStack(2);
-        print_error("error, divide by zero at cs:ip = %04X:%04X\n",
+        print_error("error, divide overflow at cs:ip = %04X:%04X\n",
                     cs, ip);
     }
     else if(inum == 0x28)
