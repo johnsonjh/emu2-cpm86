@@ -1430,13 +1430,13 @@ void intr_cpm_bdos(void)
         break;
 
     case 46: // DRV_SPACE: free space on a drive (MP/M II / CP/M-Plus).
-    {        // DL = drive number (0=A: .. 15=P:); drives > P: return error.
+    {        // DL = drive number (0=A: .. 25=Z:); drives > Z: return error.
              // Writes a 24-bit LE count of free 128-byte records to the
              // current DMA buffer, same mock value as DOS fn=36h (large fixed
              // number so programs that use the result don't divide by zero).
              // Returns AL=0 on success, AL=0xFF for invalid drive.
         int drv = dx & 0xFF;
-        if(drv > 15)
+        if(drv > 25)
         {
             bdos_ret(0xFF);
             break;
