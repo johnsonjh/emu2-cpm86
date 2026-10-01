@@ -1429,6 +1429,33 @@ void intr_cpm_bdos(void)
         bdos_ret(0);
         break;
 
+    case 46: // DRV_SPACE: free space on a drive (MP/M II / CP/M-Plus).
+    {        // DL = drive number (0=A: .. 15=P:); drives > P: return error.
+             // Writes a 24-bit LE count of free 128-byte records to the
+             // current DMA buffer, same mock value as DOS fn=36h (large fixed
+             // number so programs that use the result don't divide by zero).
+             // Returns AL=0 on success, AL=0xFF for invalid drive.
+        int drv = dx & 0xFF;
+        if(drv > 15)
+        {
+            bdos_ret(0xFF);
+            break;
+        }
+        // Free record count must fit in 16 bits (high byte = DMA[2] = 0)
+        // because callers load DX from DMA[2] and divide DX:AX by 8 to get
+        // KB; if DX != 0 the quotient overflows 16 bits -> divide error.
+        // 0x7FF8 records * 128 bytes = ~255 MB, safely below the 16-bit limit.
+        uint32_t free_recs = 0x7FF8;
+        uint32_t dat = (uint32_t)cpm_dma_seg * 16 + cpm_dma_off;
+        memory[dat + 0] = (uint8_t)(free_recs);
+        memory[dat + 1] = (uint8_t)(free_recs >> 8);
+        memory[dat + 2] = (uint8_t)(free_recs >> 16);
+        debug(debug_dos, "CP/M DRV_SPACE drive %c: returning mock %lu free 128-byte records\n",
+              'A' + drv, (unsigned long)free_recs);
+        bdos_ret(0);
+        break;
+    }
+
     // --- Disk / FCB functions ---------------------------------------------
     // CP/M-86 passes the FCB in DS:DX exactly like the DOS FCB calls (which
     // descend from CP/M), so each maps to the matching DOS INT 21h function.
