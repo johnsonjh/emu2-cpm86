@@ -1243,6 +1243,83 @@ static int line_input(FILE *f, uint8_t *buf, int max)
     }
 }
 
+static void intr21_0a(void)
+{
+    unsigned addr = cpuGetAddrDS(cpuGetDX());
+    unsigned len = memory[addr];
+    if(!len)
+    {
+        debug(debug_dos, "\tbuffered input len = 0\n");
+        return;
+    }
+    if(addr + len + 2 >= 0x100000)
+    {
+        debug(debug_dos, "\tbuffer pointer invalid\n");
+        return;
+    }
+
+    if(devinfo[0] == 0x80D3)
+    {
+        // Console: read char-by-char in raw mode with echo + backspace, so
+        // that a character already peeked by INT 21/0Bh (sitting in
+        // queued_key) is not lost when the terminal switches to cooked mode.
+        emulator_update();
+        unsigned i = 0;
+        while(i < len)
+        {
+            int c = getch(1) & 0xFF;
+            if(c == '\r' || c == '\n')
+            {
+                // Echo the CR only: both DOS 0Ah and CP/M C_READSTR leave the
+                // cursor at column 0 of the same line, the caller emits its own
+                // newline.
+                dos_putchar('\r', 1);
+                memory[addr + i + 2] = '\r';
+                break;
+            }
+            else if(c == 0x08 || c == 0x7F) // backspace / DEL
+            {
+                if(i)
+                {
+                    i--;
+                    dos_putchar(0x08, 1);
+                    dos_putchar(' ',  1);
+                    dos_putchar(0x08, 1);
+                }
+            }
+            else if(c >= 0x20)
+            {
+                dos_putchar((uint8_t)c, 1);
+                memory[addr + i + 2] = (uint8_t)c;
+                i++;
+            }
+        }
+        memory[addr + 1] = i;
+    }
+    else
+    {
+        FILE *f = handles[0] ? handles[0] : stdin;
+        unsigned i;
+        for(i = 0; i < len;)
+        {
+            int c = getc(f);
+            // Retry if we were interrupted
+            if(c == EOF && errno == EINTR)
+            {
+                errno = 0;
+                continue;
+            }
+            if(c == '\n' || c == EOF)
+                c = '\r';
+            memory[addr + i + 2] = (char)c;
+            if(c == '\r')
+                break;
+            i++;
+        }
+        memory[addr + 1] = i;
+    }
+}
+
 static void intr21_debug(void)
 {
     static const char *func_names[] = {
@@ -1636,49 +1713,8 @@ void intr21(void)
         intr21_9();
         break;
     case 0xA: // BUFFERED INPUT
-    {
-        unsigned addr = cpuGetAddrDS(cpuGetDX());
-        unsigned len = memory[addr];
-        if(!len)
-        {
-            debug(debug_dos, "\tbuffered input len = 0\n");
-            break;
-        }
-        if(addr + len + 2 >= 0x100000)
-        {
-            debug(debug_dos, "\tbuffer pointer invalid\n");
-            break;
-        }
-
-        // If we are reading from console, suspend keyboard handling and update
-        // emulator state.
-        if(devinfo[0] == 0x80D3)
-        {
-            suspend_keyboard();
-            emulator_update();
-        }
-
-        FILE *f = handles[0] ? handles[0] : stdin;
-        unsigned i;
-        for(i = 0; i < len;)
-        {
-            int c = getc(f);
-            // Retry if we were interrupted
-            if(c == EOF && errno == EINTR)
-            {
-                errno = 0;
-                continue;
-            }
-            if(c == '\n' || c == EOF)
-                c = '\r';
-            memory[addr + i + 2] = (char)c;
-            if(c == '\r')
-                break;
-            i++;
-        }
-        memory[addr + 1] = i;
+        intr21_0a();
         break;
-    }
     case 0xB: // STDIN STATUS
         if(devinfo[0] == 0x80D3)
             cpuSetAX(char_pending() ? 0x0BFF : 0x0B00);
