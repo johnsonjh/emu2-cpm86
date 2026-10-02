@@ -79,18 +79,22 @@ static struct i8253_timer
 #define TIMER_WORD_L 2
 #define TIMER_WORD_M 3
 
-// Returns port timer at 1193179.97HZ
+// Returns port timer at 1193179.97HZ.  The PIT is hardware time, not
+// civil time, so use a monotonic clock which cannot jump when the host
+// wall clock is adjusted.
 static long get_timer_clock(void)
 {
-    struct timeval tv;
-    gettimeofday(&tv, 0);
-    // us in microseconds
-    // (don't use full seconds resolution, to avoid losing precision
-    double us = (tv.tv_sec & 0xFFFFFF) * 1000000.0 + tv.tv_usec;
-    // Convert to "counts"
-    us = us * (105.0 / 88.0);
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+
+    // Convert the monotonic clock to PIT counts.  Keep the seconds and
+    // nanoseconds terms separate so the higher-resolution clock does not
+    // lose precision by first combining them into one large value.
+    double counts = (double)(ts.tv_sec & 0xFFFFFF) * (105000000.0 / 88.0);
+    counts += (double)ts.tv_nsec * (105.0 / 88000.0);
+
     // And return as long (64 bits)
-    return lrint(us);
+    return lrint(counts);
 }
 
 // Get actual value in timer
