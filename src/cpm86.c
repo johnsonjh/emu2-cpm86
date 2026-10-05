@@ -191,6 +191,7 @@ static void cpm_init_version(void)
 //   EMU2_CPM_PLUS            = CP/M 3 limits: 2048 extents/32MB files, 512MB disks
 // The disk is also capped at the guest-tool ceiling: a standard CP/M 2.2 program
 // (16-bit record counts) tops out at ~8MB; CP/M-3 (PLUS) reaches 512MB.
+// BDOS 27 (allocation vector) and BDOS 46 (free space) report from this geometry.
 // ---------------------------------------------------------------------------
 static unsigned cpm_blk_size = 2048; // CURRENT drive's geometry (set by cpm_select_disk)
 static unsigned cpm_bsh = 4, cpm_blm = 15, cpm_exm = 0;
@@ -341,6 +342,27 @@ static void cpm_compute_geo(int drive)
           'A' + drive, path, g->blk_size, g->dsm, g->drm, g->dir_blocks, cpm_max_ext);
 }
 
+// Geometry of `drive`, computed and cached on first use.  Does not change the
+// current-disk globals, so it can be used to query a drive other than the current.
+static const struct cpm_geo *cpm_geo_get(int drive)
+{
+    if(drive < 0 || drive >= 26)
+        drive = 0;
+    if(!cpm_geo[drive].ready)
+        cpm_compute_geo(drive);
+    return &cpm_geo[drive];
+}
+
+// Blocks in use on `drive`: the directory blocks plus the blocks taken by the
+// files in its host directory, clamped to the disk size.  Shared by the BDOS 27
+// allocation vector and BDOS 46 so both report the same free space.
+static unsigned long cpm_used_blocks(const struct cpm_geo *g, int drive)
+{
+    unsigned long nblocks = (unsigned long)g->dsm + 1;
+    unsigned long used = g->dir_blocks + cpm_scan_dir(get_base_path(drive), g->blk_size);
+    return used > nblocks ? nblocks : used;
+}
+
 // Make `drive` the current disk, computing its geometry on first use.
 static void cpm_select_disk(int drive)
 {
@@ -348,9 +370,7 @@ static void cpm_select_disk(int drive)
         drive = 0;
     if(!cpm_av_addr)
         cpm_av_addr = get_static_memory(8192 + 16, 16);
-    if(!cpm_geo[drive].ready)
-        cpm_compute_geo(drive);
-    struct cpm_geo *g = &cpm_geo[drive];
+    const struct cpm_geo *g = cpm_geo_get(drive);
     cpm_blk_size = g->blk_size;
     cpm_bsh = g->bsh;
     cpm_blm = g->blm;
@@ -1429,6 +1449,37 @@ void intr_cpm_bdos(void)
         bdos_ret(0);
         break;
 
+    case 46: // DRV_SPACE: free space on a drive (MP/M II / CP/M-Plus).
+    {        // DL = drive number (0=A: .. 25=Z:); drives > Z: return error.
+             // Writes a 24-bit LE count of free 128-byte records to the current
+             // DMA buffer, computed from the drive's fabricated geometry (the
+             // same figure the BDOS 27 allocation vector yields), so it follows
+             // EMU2_CPM_DISK / EMU2_CPM_FREE / EMU2_CPM_PLUS.
+             // Returns AL=0 on success, AL=0xFF for invalid drive.
+        int drv = dx & 0xFF;
+        if(drv > 25)
+        {
+            bdos_ret(0xFF);
+            break;
+        }
+        const struct cpm_geo *g = cpm_geo_get(drv);
+        unsigned long free_blks = ((unsigned long)g->dsm + 1) - cpm_used_blocks(g, drv);
+        unsigned long free_recs = free_blks * (g->blk_size / 128);
+        // The exact count is reported.  Standard (non-PLUS) disks stay below 64K
+        // records.  With EMU2_CPM_PLUS it can reach 0x400000 (512MB): a caller that
+        // loads DX from DMA[2] and does a 16-bit DX:AX / 8 to get KB takes a divide
+        // error once DX >= 8 (>= 0x80000 records, 64MB).  If such a tool shows up,
+        // clamp here (e.g. free_recs = 0x7FFFF) instead of reporting the exact value.
+        uint32_t dat = (uint32_t)cpm_dma_seg * 16 + cpm_dma_off;
+        memory[dat + 0] = (uint8_t)(free_recs);
+        memory[dat + 1] = (uint8_t)(free_recs >> 8);
+        memory[dat + 2] = (uint8_t)(free_recs >> 16);
+        debug(debug_dos, "CP/M DRV_SPACE drive %c: %lu free 128-byte records\n",
+              'A' + drv, free_recs);
+        bdos_ret(0);
+        break;
+    }
+
     // --- Disk / FCB functions ---------------------------------------------
     // CP/M-86 passes the FCB in DS:DX exactly like the DOS FCB calls (which
     // descend from CP/M), so each maps to the matching DOS INT 21h function.
@@ -1555,11 +1606,7 @@ void intr_cpm_bdos(void)
              // by the files now in the directory, so free-space matches the listing.
         cpm_select_disk(dos_get_default_drive());
         unsigned nblocks = cpm_dsm + 1;
-        // directory blocks + the blocks used by the current drive's files
-        unsigned long used_blocks =
-            cpm_dir_blocks + cpm_scan_dir(get_base_path(cpm_cur_drive), cpm_blk_size);
-        if(used_blocks > nblocks)
-            used_blocks = nblocks;
+        unsigned long used_blocks = cpm_used_blocks(&cpm_geo[cpm_cur_drive], cpm_cur_drive);
         unsigned nbytes = (nblocks + 7) / 8;
         for(unsigned i = 0; i < nbytes; i++)
         {
