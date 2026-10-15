@@ -606,6 +606,11 @@ static void set_raw_term(int raw)
     if(raw == term_raw)
         return;
 
+    // If tty_fd is not a real terminal (e.g. /dev/null fallback when there is
+    // no controlling TTY), tcgetattr will fail — just skip raw-mode setup.
+    if(!isatty(tty_fd))
+        return;
+
     term_raw = raw;
     if(term_raw)
         keyboard_suspended = 0;
@@ -645,8 +650,16 @@ static void init_keyboard(void)
     {
         tty_fd = open("/dev/tty", O_NOCTTY | O_RDONLY);
         if(tty_fd < 0)
-            print_error("error in %s[%d] at open TTY, %s\n",
-                        __func__, __LINE__, strerror(errno));
+        {
+            // No controlling TTY (e.g. running without a terminal, in a pipe,
+            // or under CI).  Fall back to /dev/null so read() returns EOF = no
+            // key available.  Keyboard input simply won't work, but the
+            // emulator can still run non-interactive programs to completion.
+            tty_fd = open("/dev/null", O_RDONLY);
+            if(tty_fd < 0)
+                print_error("error in %s[%d] at open TTY, %s\n",
+                            __func__, __LINE__, strerror(errno));
+        }
         atexit(exit_keyboard);
     }
     set_raw_term(1);
