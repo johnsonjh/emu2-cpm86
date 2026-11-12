@@ -739,23 +739,22 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
     // --- Base page (256 bytes at DS:0) --------------------------------------
     // CP/M-86 lays out the base page as 6-byte group descriptors, one per group
     // in the order code, data, extra, stack (then auxiliary groups):
-    //   +0  length of the group in BYTES (24-bit, 3 bytes)
+    //   +0  last byte offset of the group (24-bit, 3 bytes)
     //   +3  segment (paragraph) address of the group (word)
     //   +5  flag byte (set for the 8080 memory model)
-    // Confirmed against the DRI System Guide layout and a base-page dump from
-    // cpm86.exe.  Runtimes rely on this: Turbo Pascal, for instance, reads the
-    // extra-group descriptor at 0x0C to compute SS (= extra_seg + extra_paras -
-    // 64K) and to place its heap at the extra segment.  The data-group length
-    // doubles as the "size of available memory" field.  (The previous
-    // {segment,length}-word layout fed programs garbage.)
-    uint16_t sp_top = (data_par >= 0x1000) ? 0xFFF0 : (uint16_t)(data_par * 16 - 16);
+    // DRI System Guide section 2.6: the length field is the last byte
+    // offset, one less than the allocated group size. Confirmed by probes
+    // on CP/M-86 1.1 and CCP/M-86 3.1: 64 KiB -> 00FFFF, 16 B -> 00000F.
+    // Missing groups retain zero length AND zero segment; do not underflow.
+    uint16_t sp_top = (uint16_t)((uint32_t)data_par * 16 - 1);
     uint32_t bp = (uint32_t)cpm_base_seg * 16;
     uint8_t mflag = model_8080 ? 0x01 : 0x00;
     memset(memory + bp, 0, 0x100);
 #define CPM_GDESC(o, len_bytes, seg)                                               \
     do                                                                             \
     {                                                                              \
-        uint32_t l_ = (len_bytes);                                                 \
+        uint32_t n_ = (len_bytes);                                                 \
+        uint32_t l_ = n_ ? n_ - 1 : 0;                                             \
         memory[bp + (o) + 0] = l_ & 0xFF;                                          \
         memory[bp + (o) + 1] = (l_ >> 8) & 0xFF;                                   \
         memory[bp + (o) + 2] = (l_ >> 16) & 0xFF;                                  \
@@ -763,7 +762,7 @@ int cpm86_load_cmd(FILE *f, const char *cmdline)
         memory[bp + (o) + 5] = mflag;                                              \
     } while(0)
     CPM_GDESC(0x00, (uint32_t)code_par << 4, cpm_code_seg); // code group
-    CPM_GDESC(0x06, sp_top, cpm_data_seg);                  // data group (len = SP top)
+    CPM_GDESC(0x06, (uint32_t)data_par << 4, cpm_data_seg); // data group
     CPM_GDESC(0x0C, (uint32_t)extra_par << 4, extra_seg);   // extra group (0 if none)
     CPM_GDESC(0x12, (uint32_t)stack_par << 4, stack_seg);   // stack group (0 if none)
     CPM_GDESC(0x18, (uint32_t)aux_par[0] << 4, aux_seg[0]); // aux group 1
